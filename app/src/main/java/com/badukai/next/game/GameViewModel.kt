@@ -1,7 +1,7 @@
 package com.badukai.next.game
 
 import android.content.Context
-import android.util.Log
+import com.badukai.next.logging.AppLogger
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.badukai.next.engine.KataGoEngine
@@ -92,7 +92,7 @@ class GameViewModel : ViewModel() {
                     )
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error starting engine", e)
+                AppLogger.e(TAG, "Error starting engine", e)
                 _state.value = _state.value.copy(
                     isEngineReady = false,
                     isEngineStarting = false,
@@ -114,19 +114,19 @@ class GameViewModel : ViewModel() {
         val currentState = _state.value
         
         if (!currentState.isPlayerTurn || currentState.isThinking) {
-            Log.d(TAG, "Not player's turn or AI is thinking")
+            AppLogger.d(TAG, "Not player's turn or AI is thinking")
             return
         }
 
         if (currentState.board.isGameOver) {
-            Log.d(TAG, "Game is over")
+            AppLogger.d(TAG, "Game is over")
             return
         }
 
         val point = Point(x, y)
         
         if (!currentState.board.isLegalMove(point, currentState.currentPlayer)) {
-            Log.d(TAG, "Illegal move at $x, $y")
+            AppLogger.d(TAG, "Illegal move at $x, $y")
             return
         }
 
@@ -168,7 +168,7 @@ class GameViewModel : ViewModel() {
         val engine = this.engine
         
         if (engine == null || !currentState.isEngineReady) {
-            Log.e(TAG, "Engine not ready")
+            AppLogger.e(TAG, "Engine not ready")
             return
         }
 
@@ -183,7 +183,7 @@ class GameViewModel : ViewModel() {
                     handleAiMove(move, aiColor)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error getting AI move", e)
+                AppLogger.e(TAG, "Error getting AI move", e)
                 _state.value = _state.value.copy(
                     isThinking = false,
                     gameMessage = "AI error: ${e.message}"
@@ -233,7 +233,7 @@ class GameViewModel : ViewModel() {
                         gameMessage = "Your turn"
                     )
                 } else {
-                    Log.e(TAG, "Failed to parse AI move: $move")
+                    AppLogger.e(TAG, "Failed to parse AI move: $move")
                     _state.value = _state.value.copy(gameMessage = "AI error")
                 }
             }

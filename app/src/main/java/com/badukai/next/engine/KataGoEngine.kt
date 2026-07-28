@@ -1,7 +1,7 @@
 package com.badukai.next.engine
 
 import android.content.Context
-import android.util.Log
+import com.badukai.next.logging.AppLogger
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -75,11 +75,11 @@ class KataGoEngine(private val context: Context) {
      */
     suspend fun start(model: Model = Model.HUMAN): Boolean = withContext(Dispatchers.IO) {
         if (isRunning.get()) {
-            Log.w(TAG, "Engine already running")
+            AppLogger.w(TAG, "Engine already running")
             return@withContext true
         }
 
-        Log.i(TAG, "=== PATCHED KATAGO ENGINE ===")
+        AppLogger.i(TAG, "=== PATCHED KATAGO ENGINE ===")
 
         try {
             // 1. Setup Paths using /data/data/ format (required by patched binary)
@@ -92,7 +92,7 @@ class KataGoEngine(private val context: Context) {
             val hexagonDir = File(filesDir, "hexagon")
             if (!hexagonDir.exists()) {
                 hexagonDir.mkdirs()
-                Log.i(TAG, "Created hexagon directory: ${hexagonDir.absolutePath}")
+                AppLogger.i(TAG, "Created hexagon directory: ${hexagonDir.absolutePath}")
             }
             
             // 2. Copy patched KataGo binary from assets if needed
@@ -100,14 +100,14 @@ class KataGoEngine(private val context: Context) {
             if (!binaryFile.exists() || shouldUpdateBinary(binaryFile)) {
                 copyAssetToFile(BINARY_NAME, binaryFile)
                 binaryFile.setExecutable(true)
-                Log.i(TAG, "Installed patched KataGo binary")
+                AppLogger.i(TAG, "Installed patched KataGo binary")
             }
             
             // 3. Copy config file from assets
             val configFile = File(filesDir, CONFIG_NAME)
             if (!configFile.exists()) {
                 copyAssetToFile(CONFIG_NAME, configFile)
-                Log.i(TAG, "Copied config file: ${configFile.absolutePath}")
+                AppLogger.i(TAG, "Copied config file: ${configFile.absolutePath}")
             }
             
             // 4. Prepare Model files - Python puts them in files/app/
@@ -119,9 +119,9 @@ class KataGoEngine(private val context: Context) {
                 copyAssetToFile("models/${model.fileName}", modelFile)
             }
             
-            Log.i(TAG, "Model: ${modelFile.absolutePath} (exists=${modelFile.exists()}, size=${modelFile.length()})")
-            Log.i(TAG, "Config: ${configFile.absolutePath} (exists=${configFile.exists()})")
-            Log.i(TAG, "Binary: ${binaryFile.absolutePath} (exists=${binaryFile.exists()})")
+            AppLogger.i(TAG, "Model: ${modelFile.absolutePath} (exists=${modelFile.exists()}, size=${modelFile.length()})")
+            AppLogger.i(TAG, "Config: ${configFile.absolutePath} (exists=${configFile.exists()})")
+            AppLogger.i(TAG, "Binary: ${binaryFile.absolutePath} (exists=${binaryFile.exists()})")
 
             // 5. Build command using linker64 to execute from files directory
             // Android doesn't allow direct execution from app data directories (W^X policy)
@@ -135,7 +135,7 @@ class KataGoEngine(private val context: Context) {
                 "-model", modelFile.absolutePath,
                 "-config", configFile.absolutePath
             )
-            Log.i(TAG, "Command: ${command.joinToString(" ")}")
+            AppLogger.i(TAG, "Command: ${command.joinToString(" ")}")
 
             // 5. Build ProcessBuilder with environment
             val builder = ProcessBuilder(command)
@@ -149,14 +149,14 @@ class KataGoEngine(private val context: Context) {
             env["ADSP_LIBRARY_PATH"] = "$nativeLibDir;${hexagonDir.absolutePath};/system/lib/rfsa/adsp;/system/vendor/lib/rfsa/adsp;/dsp"
             env["HOME"] = filesDir.absolutePath
             
-            Log.i(TAG, "Environment:")
-            Log.i(TAG, "  LD_LIBRARY_PATH=${env["LD_LIBRARY_PATH"]}")
-            Log.i(TAG, "  ADSP_LIBRARY_PATH=${env["ADSP_LIBRARY_PATH"]}")
-            Log.i(TAG, "  HOME=${env["HOME"]}")
-            Log.i(TAG, "  Working dir=${hexagonDir.absolutePath}")
+            AppLogger.i(TAG, "Environment:")
+            AppLogger.i(TAG, "  LD_LIBRARY_PATH=${env["LD_LIBRARY_PATH"]}")
+            AppLogger.i(TAG, "  ADSP_LIBRARY_PATH=${env["ADSP_LIBRARY_PATH"]}")
+            AppLogger.i(TAG, "  HOME=${env["HOME"]}")
+            AppLogger.i(TAG, "  Working dir=${hexagonDir.absolutePath}")
 
             // 6. Launch the process
-            Log.i(TAG, "Launching process...")
+            AppLogger.i(TAG, "Launching process...")
             process = builder.start()
             
             writer = BufferedWriter(OutputStreamWriter(process!!.outputStream))
@@ -168,15 +168,15 @@ class KataGoEngine(private val context: Context) {
             
             val alive = process?.isAlive ?: false
             val exitCode = try { process?.exitValue() } catch (e: IllegalThreadStateException) { null }
-            Log.i(TAG, "Process alive: $alive, exitCode: $exitCode")
+            AppLogger.i(TAG, "Process alive: $alive, exitCode: $exitCode")
             
             if (!alive) {
                 // Process died immediately - read any error output
                 val error = errorReader?.readText() ?: ""
                 val output = reader?.readText() ?: ""
-                Log.e(TAG, "Process died immediately!")
-                Log.e(TAG, "Stderr: $error")
-                Log.e(TAG, "Stdout: $output")
+                AppLogger.e(TAG, "Process died immediately!")
+                AppLogger.e(TAG, "Stderr: $error")
+                AppLogger.e(TAG, "Stdout: $output")
                 return@withContext false
             }
 
@@ -187,11 +187,11 @@ class KataGoEngine(private val context: Context) {
             startReaderJob()
             startErrorReaderJob()
             
-            Log.i(TAG, "=== ENGINE STARTED SUCCESSFULLY ===")
+            AppLogger.i(TAG, "=== ENGINE STARTED SUCCESSFULLY ===")
             return@withContext true
 
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start engine", e)
+            AppLogger.e(TAG, "Failed to start engine", e)
             return@withContext false
         }
     }
@@ -220,11 +220,11 @@ class KataGoEngine(private val context: Context) {
                             input.copyTo(output)
                         }
                     }
-                    Log.i(TAG, "Copied hexagon skeleton: $fileName")
+                    AppLogger.i(TAG, "Copied hexagon skeleton: $fileName")
                 }
             } catch (e: Exception) {
                 // Hexagon files are optional - only needed for DSP acceleration
-                Log.d(TAG, "Hexagon skeleton not available: $fileName")
+                AppLogger.d(TAG, "Hexagon skeleton not available: $fileName")
             }
         }
     }
@@ -233,14 +233,14 @@ class KataGoEngine(private val context: Context) {
         readerJob = scope.launch {
             try {
                 val buffer = StringBuilder()
-                Log.i(TAG, "Reader job started, waiting for output...")
+                AppLogger.i(TAG, "Reader job started, waiting for output...")
                 
                 while (isActive && isRunning.get()) {
                     val line = withContext(Dispatchers.IO) {
                         try {
                             reader?.readLine()
                         } catch (e: IOException) {
-                            Log.e(TAG, "IOException reading: ${e.message}")
+                            AppLogger.e(TAG, "IOException reading: ${e.message}")
                             null
                         }
                     }
@@ -249,11 +249,11 @@ class KataGoEngine(private val context: Context) {
                         // Check process state when stream closes
                         val alive = process?.isAlive
                         val exit = try { process?.exitValue() } catch (e: Exception) { -999 }
-                        Log.i(TAG, "KataGo stdout stream closed (alive=$alive, exit=$exit)")
+                        AppLogger.i(TAG, "KataGo stdout stream closed (alive=$alive, exit=$exit)")
                         break
                     }
                     
-                    Log.d(TAG, "KataGo stdout: $line")
+                    AppLogger.d(TAG, "KataGo stdout: $line")
                     buffer.append(line).append("\n")
                     
                     // GTP responses end with an empty line after the response
@@ -265,7 +265,7 @@ class KataGoEngine(private val context: Context) {
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Stdout reader job error", e)
+                AppLogger.e(TAG, "Stdout reader job error", e)
             }
         }
     }
@@ -283,17 +283,17 @@ class KataGoEngine(private val context: Context) {
                     }
                     
                     if (line == null) {
-                        Log.i(TAG, "KataGo stderr stream closed")
+                        AppLogger.i(TAG, "KataGo stderr stream closed")
                         break
                     }
                     
-                    Log.e(TAG, "KataGo stderr: $line")
+                    AppLogger.e(TAG, "KataGo stderr: $line")
                     
                     // Log stderr for debugging but don't add to response queue
-                    Log.w(TAG, "KataGo stderr: $line")
+                    AppLogger.w(TAG, "KataGo stderr: $line")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Stderr reader job error", e)
+                AppLogger.e(TAG, "Stderr reader job error", e)
             }
         }
     }
@@ -302,7 +302,7 @@ class KataGoEngine(private val context: Context) {
      * Stop the KataGo engine
      */
     fun stop() {
-        Log.i(TAG, "Stopping KataGo...")
+        AppLogger.i(TAG, "Stopping KataGo...")
         
         isRunning.set(false)
         _isReady.value = false
@@ -348,7 +348,7 @@ class KataGoEngine(private val context: Context) {
         reader = null
         responseQueue.clear()
         
-        Log.i(TAG, "KataGo stopped")
+        AppLogger.i(TAG, "KataGo stopped")
     }
 
     /**
@@ -360,18 +360,18 @@ class KataGoEngine(private val context: Context) {
     
     private fun sendCommandSync(command: String): Boolean {
         if (!isRunning.get() && command != "quit") {
-            Log.w(TAG, "Cannot send command, engine not running")
+            AppLogger.w(TAG, "Cannot send command, engine not running")
             return false
         }
         
         return try {
-            Log.d(TAG, "Sending: $command")
+            AppLogger.d(TAG, "Sending: $command")
             writer?.write(command)
             writer?.newLine()
             writer?.flush()
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Error sending command: $command", e)
+            AppLogger.e(TAG, "Error sending command: $command", e)
             false
         }
     }
@@ -401,10 +401,10 @@ class KataGoEngine(private val context: Context) {
             
             // Parse GTP response: "= D4\n\n" or "= pass\n\n" or "= resign\n\n"
             val move = parseGtpResponse(response)
-            Log.i(TAG, "Generated move for $color: $move")
+            AppLogger.i(TAG, "Generated move for $color: $move")
             move
         } catch (e: Exception) {
-            Log.e(TAG, "Error generating move", e)
+            AppLogger.e(TAG, "Error generating move", e)
             null
         }
     }
@@ -419,7 +419,7 @@ class KataGoEngine(private val context: Context) {
             val response = waitForResponse(5000)
             response.startsWith("=")
         } catch (e: Exception) {
-            Log.e(TAG, "Error playing move", e)
+            AppLogger.e(TAG, "Error playing move", e)
             false
         }
     }
@@ -434,7 +434,7 @@ class KataGoEngine(private val context: Context) {
             val response = waitForResponse(5000)
             response.startsWith("=")
         } catch (e: Exception) {
-            Log.e(TAG, "Error setting board size", e)
+            AppLogger.e(TAG, "Error setting board size", e)
             false
         }
     }
@@ -449,7 +449,7 @@ class KataGoEngine(private val context: Context) {
             val response = waitForResponse(5000)
             response.startsWith("=")
         } catch (e: Exception) {
-            Log.e(TAG, "Error clearing board", e)
+            AppLogger.e(TAG, "Error clearing board", e)
             false
         }
     }
@@ -464,7 +464,7 @@ class KataGoEngine(private val context: Context) {
             val response = waitForResponse(5000)
             response.startsWith("=")
         } catch (e: Exception) {
-            Log.e(TAG, "Error setting komi", e)
+            AppLogger.e(TAG, "Error setting komi", e)
             false
         }
     }
@@ -479,7 +479,7 @@ class KataGoEngine(private val context: Context) {
             val response = waitForResponse(5000)
             response.startsWith("=")
         } catch (e: Exception) {
-            Log.e(TAG, "Error undoing move", e)
+            AppLogger.e(TAG, "Error undoing move", e)
             false
         }
     }
@@ -494,7 +494,7 @@ class KataGoEngine(private val context: Context) {
             val response = waitForResponse(10000)
             parseGtpResponse(response)
         } catch (e: Exception) {
-            Log.e(TAG, "Error getting final score", e)
+            AppLogger.e(TAG, "Error getting final score", e)
             null
         }
     }
@@ -550,8 +550,8 @@ class KataGoEngine(private val context: Context) {
         """.trimIndent()
 
         file.writeText(config)
-        Log.i(TAG, "Config file created: ${file.absolutePath}")
-        Log.i(TAG, "Log file configured to: $logFilePath")
+        AppLogger.i(TAG, "Config file created: ${file.absolutePath}")
+        AppLogger.i(TAG, "Log file configured to: $logFilePath")
     }
 
     /**
@@ -573,7 +573,7 @@ class KataGoEngine(private val context: Context) {
                 input.copyTo(output)
             }
         }
-        Log.i(TAG, "Asset copied: $assetPath -> ${outFile.absolutePath}")
+        AppLogger.i(TAG, "Asset copied: $assetPath -> ${outFile.absolutePath}")
     }
 
     fun isRunning(): Boolean = isRunning.get()
