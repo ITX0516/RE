@@ -3,36 +3,53 @@ package com.badukai.next.ui
 import androidx.compose.ui.graphics.Color
 
 /**
- * Minimalist color scheme for BadukNext
+ * Color scheme for BadukNext
  */
 object BadukNextColors {
-    // Board colors
-    val BoardBackground = Color(0xFFDEB887) // Burlywood - traditional Go board
-    val BoardLine = Color(0xFF2D2D2D)       // Dark gray lines
-    val StarPoint = Color(0xFF2D2D2D)       // Star points (hoshi)
-    
+    // Board colors - kaya wood style
+    val BoardBackground = Color(0xFFE4B877) // Kaya wood tone
+    val BoardLine = Color(0xFF3A2A18)       // Warm dark brown lines
+    val StarPoint = Color(0xFF3A2A18)       // Same as lines
+
     // Stone colors
-    val BlackStone = Color(0xFF1A1A1A)      // Almost black
-    val BlackStoneHighlight = Color(0xFF3D3D3D)
-    val WhiteStone = Color(0xFFF5F5F5)      // Off-white
+    val BlackStone = Color(0xFF111111)      // Deep black
+    val BlackStoneHighlight = Color(0xFF555555)
+    val WhiteStone = Color(0xFFFAFAF5)      // Warm off-white (clam shell tone)
     val WhiteStoneHighlight = Color(0xFFFFFFFF)
-    val WhiteStoneBorder = Color(0xFF888888)
-    
-    // Last move marker
-    val LastMoveMarker = Color(0xFFE53935) // Red accent
-    
-    // UI colors - minimal palette
-    val Background = Color(0xFFFAFAFA)      // Almost white
+    val WhiteStoneBorder = Color(0xFF9A9A9A)
+
+    // Last move markers
+    val LastMoveMarkerOnBlack = Color(0xFFFF5252) // Red ring on black
+    val LastMoveMarkerOnWhite = Color(0xFFE53935) // Dark red ring on white
+    val LastMoveMarker = Color(0xFFE53935)
+
+    // UI colors
+    val Background = Color(0xFFF5F1EA)      // Warm parchment background
     val Surface = Color(0xFFFFFFFF)
-    val TextPrimary = Color(0xFF1A1A1A)
-    val TextSecondary = Color(0xFF757575)
-    val Accent = Color(0xFF2D2D2D)          // Dark accent
-    val AccentLight = Color(0xFFE0E0E0)     // Light gray
-    
+    val SurfaceVariant = Color(0xFFFDF8F1)  // Warm card surface
+
+    val TextPrimary = Color(0xFF201A12)
+    val TextSecondary = Color(0xFF706250)
+    val TextOnAccent = Color(0xFFFFFFFF)
+
+    val Accent = Color(0xFF2F6B4F)          // Deep green accent
+    val AccentVariant = Color(0xFF4A8C6B)
+    val AccentLight = Color(0xFFE3EDE6)     // Light green tint
+
+    val Divider = Color(0xFFE8DED0)
+
     // Button states
-    val ButtonActive = Color(0xFF1A1A1A)
-    val ButtonDisabled = Color(0xFFBDBDBD)
-    
+    val ButtonActive = Color(0xFF2F6B4F)
+    val ButtonPressed = Color(0xFF24563E)
+    val ButtonDisabled = Color(0xFFC9C0B2)
+    val ButtonDisabledText = Color(0xFF8A7F6F)
+
+    val Danger = Color(0xFFB53A2E)          // Resign red
+    val DangerLight = Color(0xFFFAE5E2)
+    val Warning = Color(0xFFBF7A1A)
+    val WarningLight = Color(0xFFFBEFD9)
+
     // Status colors
-    val ThinkingIndicator = Color(0xFF4CAF50) // Green for AI thinking
+    val ThinkingIndicator = Color(0xFF2F6B4F)
+    val ThinkingBg = Color(0xFFE3EDE6)
 }
