@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -14,7 +14,8 @@ jobs:
 
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
-      JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17
+      VERSION_NAME: "1.0"
+      VERSION_TAG: "v1.0"
 
     steps:
       - name: Checkout
@@ -51,9 +52,34 @@ jobs:
       - name: Assemble Debug APK
         run: ./gradlew --no-daemon clean assembleDebug
 
-      - name: Upload APK
+      - name: Rename APK
+        run: |
+          set -e
+          ls -la app/build/outputs/apk/debug/
+          APK_SRC="$(ls app/build/outputs/apk/debug/*.apk | head -1)"
+          cp "$APK_SRC" "app/build/outputs/apk/debug/RE-${VERSION_NAME}-debug.apk"
+          ls -la "app/build/outputs/apk/debug/RE-${VERSION_NAME}-debug.apk"
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: RE-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/debug/RE-${{ env.VERSION_NAME }}-debug.apk
           if-no-files-found: error
+
+      - name: Delete existing tag/release v1.0
+        continue-on-error: true
+        run: |
+          git push origin :refs/tags/${VERSION_TAG} 2>/dev/null || true
+          gh release delete ${VERSION_TAG} -y 2>/dev/null || true
+
+      - name: Create GitHub Release v1.0
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION_TAG }}
+          name: "RE v${{ env.VERSION_NAME }}"
+          generate_release_notes: true
+          prerelease: false
+          make_latest: true
+          files: |
+            app/build/outputs/apk/debug/RE-${{ env.VERSION_NAME }}-debug.apk
