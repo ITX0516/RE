@@ -1,0 +1,3 @@
+# Same note as assets/models/.gitkeep: ./setup-from-badukai.sh copies all the
+# jniLibs/arm64-v8a/*.so runtime libraries (SDL2, Qnn, SNPE stubs) from the
+# upstream badukai repo here. This placeholder just keeps the directory tracked.

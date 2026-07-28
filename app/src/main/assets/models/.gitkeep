@@ -1,0 +1,5 @@
+# This directory gets populated by ./setup-from-badukai.sh with models copied from
+# the upstream badukai repo's assets/models/*.bin.gz (and other .bin). Do NOT commit
+# the actual neural nets to git — they are way too large. The .gitkeep ensures the
+# directory exists so the app won't crash when listing its contents at build time,
+# even before models are copied in.

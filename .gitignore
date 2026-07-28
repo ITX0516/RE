@@ -1,0 +1,17 @@
+# Build
+/app/build/
+/app/.cxx/
+/build/
+/captures/
+/.idea/
+/.gradle/
+/local.properties
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# APK
+*.apk
+*.aab
