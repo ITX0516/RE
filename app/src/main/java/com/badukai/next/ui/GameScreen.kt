@@ -1,6 +1,9 @@
 package com.badukai.next.ui
 
 import androidx.compose.animation.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +24,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.badukai.next.analysis.AnalysisTab
 import com.badukai.next.engine.KataGoEngine
 import com.badukai.next.game.GameMode
 import com.badukai.next.game.GameState
@@ -404,6 +408,7 @@ private fun AnalysisContent(
     onBoardTap: (Int, Int) -> Unit
 ) {
     val colors = BadukNextColors
+    var selectedTab by remember { mutableStateOf(AnalysisTab.MOVE_TREE) }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
@@ -418,12 +423,7 @@ private fun AnalysisContent(
             IconButton(onClick = onNewGame, modifier = Modifier.size(36.dp)) {
                 Text("\u2795", fontSize = 16.sp)
             }
-            Text(
-                text = "Analysis",
-                color = colors.TextPrimary,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold
-            )
+            Text("Analysis", color = colors.TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             IconButton(onClick = onSettings, modifier = Modifier.size(36.dp)) {
                 Text("\u2699", fontSize = 16.sp, color = colors.TextSecondary)
             }
@@ -436,111 +436,164 @@ private fun AnalysisContent(
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth().aspectRatio(1f),
-                shape = RoundedCornerShape(6.dp),
-                shadowElevation = 2.dp
+                shape = RoundedCornerShape(6.dp), shadowElevation = 2.dp
             ) {
                 GoBoard(
-                    board = state.board,
-                    lastMovePoint = state.lastMovePoint,
-                    onIntersectionTap = { _, _ -> },
-                    enabled = false,
+                    board = state.board, lastMovePoint = state.lastMovePoint,
+                    onIntersectionTap = { _, _ -> }, enabled = false,
                     showCoordinates = state.showCoordinates
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(Modifier.height(4.dp))
 
-        // ── Move Slider ──
-        if (state.analysisMoves.isNotEmpty()) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "Move ${state.analysisMoveIndex} / ${state.analysisMoves.size}",
-                    color = colors.TextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
+        // ── Navigation ──
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onPrev, enabled = state.analysisMoveIndex > 0, modifier = Modifier.size(36.dp)) {
+                Text("\u25C0", fontSize = 18.sp, color = if (state.analysisMoveIndex > 0) colors.TextPrimary else colors.ButtonDisabledText)
+            }
+            Text(
+                "${state.analysisMoveIndex}/${state.analysisMoves.size}",
+                modifier = Modifier.width(80.dp),
+                textAlign = TextAlign.Center,
+                color = colors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium
+            )
+            IconButton(onClick = onNext, enabled = state.analysisMoveIndex < state.analysisMoves.size, modifier = Modifier.size(36.dp)) {
+                Text("\u25B6", fontSize = 18.sp, color = if (state.analysisMoveIndex < state.analysisMoves.size) colors.TextPrimary else colors.ButtonDisabledText)
+            }
+        }
 
-                Spacer(modifier = Modifier.height(4.dp))
+        Spacer(Modifier.height(4.dp))
 
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth().height(40.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    contentPadding = PaddingValues(horizontal = 6.dp)
+        // ── Sub-tabs ──
+        Row(
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(colors.SurfaceVariant),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            AnalysisTab.entries.forEach { tab ->
+                val isSelected = tab == selectedTab
+                Box(
+                    modifier = Modifier.weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (isSelected) colors.Accent else Color.Transparent)
+                        .clickable { selectedTab = tab }
+                        .padding(vertical = 6.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    itemsIndexed(state.analysisMoves) { idx, _ ->
+                    Text(
+                        tab.label,
+                        color = if (isSelected) colors.TextOnAccent else colors.TextSecondary,
+                        fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(6.dp))
+
+        // ── Tab Content ──
+        Box(
+            modifier = Modifier.fillMaxWidth().height(92.dp).clip(RoundedCornerShape(8.dp))
+                .background(colors.Surface)
+        ) {
+            when (selectedTab) {
+                AnalysisTab.MOVE_TREE -> MoveTreeContent(state, colors)
+                AnalysisTab.CHART -> ChartPlaceholder(colors)
+                AnalysisTab.CANDIDATES -> CandidatesPlaceholder(colors)
+            }
+        }
+
+        Spacer(Modifier.height(6.dp))
+    }
+}
+
+@Composable
+private fun MoveTreeContent(state: GameState, colors: ThemeColors) {
+    if (state.analysisMoves.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No moves recorded", color = colors.TextSecondary, fontSize = 12.sp)
+        }
+        return
+    }
+
+    val scrollState = rememberScrollState()
+    Box(
+        modifier = Modifier.fillMaxSize().horizontalScroll(scrollState).padding(6.dp)
+    ) {
+        Column {
+            val perRow = 10
+            val rows = (state.analysisMoves.size + perRow - 1) / perRow
+            for (row in 0 until rows) {
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    val start = row * perRow
+                    val end = minOf(start + perRow, state.analysisMoves.size)
+                    for (idx in start until end) {
                         val isSelected = idx == state.analysisMoveIndex - 1
                         val moveNum = idx + 1
                         Box(
-                            modifier = Modifier
-                                .width(28.dp).height(32.dp)
+                            modifier = Modifier.size(26.dp)
                                 .clip(RoundedCornerShape(4.dp))
                                 .background(if (isSelected) colors.Accent else colors.SurfaceVariant)
-                                .clickable { /* would navigate */ }
                                 .padding(2.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "$moveNum",
+                                "$moveNum",
                                 fontSize = 10.sp,
-                                color = if (isSelected) colors.TextOnAccent else colors.TextSecondary
+                                color = if (isSelected) colors.TextOnAccent else colors.TextSecondary,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                             )
                         }
                     }
                 }
-
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(Modifier.height(2.dp))
             }
         }
+    }
+}
 
-        // ── Nav Buttons ──
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(
-                onClick = { /* jump to first */ },
-                enabled = state.analysisMoveIndex > 0
-            ) {
-                Text("\u23EE", fontSize = 20.sp, color = if (state.analysisMoveIndex > 0) colors.TextPrimary else colors.ButtonDisabledText)
-            }
-            Spacer(Modifier.width(8.dp))
-            IconButton(
-                onClick = onPrev,
-                enabled = state.analysisMoveIndex > 0
-            ) {
-                Text("\u25C0", fontSize = 24.sp, color = if (state.analysisMoveIndex > 0) colors.TextPrimary else colors.ButtonDisabledText)
-            }
+@Composable
+private fun ChartPlaceholder(colors: ThemeColors) {
+    val lineColor = colors.Divider
+    val textColor = colors.TextSecondary
 
-            Spacer(Modifier.width(24.dp))
+    Canvas(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+        val w = size.width
+        val h = size.height
+        val padding = 30f
+        val chartW = w - padding * 2
+        val chartH = h - padding * 2
 
-            Text(
-                text = "${state.analysisMoveIndex}/${state.analysisMoves.size}",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                color = colors.TextPrimary
-            )
-
-            Spacer(Modifier.width(24.dp))
-
-            IconButton(
-                onClick = onNext,
-                enabled = state.analysisMoveIndex < state.analysisMoves.size
-            ) {
-                Text("\u25B6", fontSize = 24.sp, color = if (state.analysisMoveIndex < state.analysisMoves.size) colors.TextPrimary else colors.ButtonDisabledText)
-            }
-            Spacer(Modifier.width(8.dp))
-            IconButton(
-                onClick = { /* jump to last */ },
-                enabled = state.analysisMoveIndex < state.analysisMoves.size
-            ) {
-                Text("\u23ED", fontSize = 20.sp, color = if (state.analysisMoveIndex < state.analysisMoves.size) colors.TextPrimary else colors.ButtonDisabledText)
-            }
+        // Grid lines (4 horizontal)
+        for (i in 0..4) {
+            val y = padding + chartH * (1f - i / 4f)
+            drawLine(lineColor, start = androidx.compose.ui.geometry.Offset(padding, y), end = androidx.compose.ui.geometry.Offset(w - padding, y), strokeWidth = 0.5f)
         }
+        // Axis lines
+        drawLine(lineColor, start = androidx.compose.ui.geometry.Offset(padding, padding), end = androidx.compose.ui.geometry.Offset(padding, h - padding), strokeWidth = 1f)
+        drawLine(lineColor, start = androidx.compose.ui.geometry.Offset(padding, h - padding), end = androidx.compose.ui.geometry.Offset(w - padding, h - padding), strokeWidth = 1f)
+    }
+
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text("Analysis data required", color = colors.TextSecondary, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun CandidatesPlaceholder(colors: ThemeColors) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(10.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("Top candidate moves", color = colors.TextSecondary, fontSize = 11.sp)
+        Spacer(Modifier.height(6.dp))
+        Text("No AI analysis yet", color = colors.ButtonDisabledText, fontSize = 12.sp)
     }
 }
 
