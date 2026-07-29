@@ -812,7 +812,7 @@ private fun SettingsDialog(
                 Spacer(modifier = Modifier.height(18.dp))
 
                 // Theme selector
-                HorizontalDivider(color = colors.Divider)
+                Divider(color = colors.Divider)
 
                 Spacer(modifier = Modifier.height(14.dp))
 
@@ -839,7 +839,7 @@ private fun SettingsDialog(
                 Spacer(modifier = Modifier.height(20.dp))
 
                 // About section
-                HorizontalDivider(color = colors.Divider)
+                Divider(color = colors.Divider)
 
                 Spacer(modifier = Modifier.height(14.dp))
 
