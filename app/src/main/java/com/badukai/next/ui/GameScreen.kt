@@ -40,6 +40,7 @@ fun GameScreen(
     onBoardTap: (Int, Int) -> Unit,
     onPass: () -> Unit,
     onResign: () -> Unit,
+    onTerritoryEstimate: () -> Unit,
     onUndo: () -> Unit,
     onNewGame: () -> Unit,
     onStartNewGame: (StoneColor, Int) -> Unit,
@@ -49,6 +50,7 @@ fun GameScreen(
     onDismissModelSelector: () -> Unit,
     onShowSettings: () -> Unit,
     onDismissSettings: () -> Unit,
+    onDismissTerritory: () -> Unit,
     onToggleCoordinates: () -> Unit,
     onToggleSound: () -> Unit,
     onSetTheme: (GameTheme) -> Unit,
@@ -94,6 +96,7 @@ fun GameScreen(
                 onBoardTap = onBoardTap,
                 onPass = onPass,
                 onResign = onResign,
+                onTerritoryEstimate = onTerritoryEstimate,
                 onUndo = onUndo,
                 onNewGame = onNewGame,
                 onModelSelect = onShowModelSelector,
@@ -128,6 +131,12 @@ fun GameScreen(
             onSetTheme = onSetTheme,
             onSetPlacementMode = onSetPlacementMode,
             onSetPlaceSound = onSetPlaceSound
+        )
+    }
+    if (state.showTerritoryDialog) {
+        TerritoryDialog(
+            result = state.territoryResult,
+            onDismiss = onDismissTerritory
         )
     }
 }
@@ -201,6 +210,7 @@ private fun PlayContent(
     onBoardTap: (Int, Int) -> Unit,
     onPass: () -> Unit,
     onResign: () -> Unit,
+    onTerritoryEstimate: () -> Unit,
     onUndo: () -> Unit,
     onNewGame: () -> Unit,
     onModelSelect: () -> Unit,
@@ -305,6 +315,12 @@ private fun PlayContent(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            PlayButton(
+                text = "Territory",
+                onClick = onTerritoryEstimate,
+                enabled = state.isEngineReady,
+                modifier = Modifier.weight(1f)
+            )
             PlayButton(
                 text = "Undo",
                 onClick = onUndo,
@@ -974,6 +990,33 @@ private fun SettingsRadioOption(label: String, selected: Boolean, onClick: () ->
             Box(modifier = Modifier.size(16.dp).clip(CircleShape).border(if (selected) 5.dp else 1.5.dp, if (selected) colors.Accent else colors.TextSecondary, CircleShape))
             Spacer(Modifier.width(10.dp))
             Text(label, color = colors.TextPrimary, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+        }
+    }
+}
+
+@Composable
+private fun TerritoryDialog(result: String, onDismiss: () -> Unit) {
+    val colors = BadukNextColors
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(16.dp), color = colors.Surface, shadowElevation = 6.dp) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Territory Estimate", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.TextPrimary)
+                Spacer(Modifier.height(14.dp))
+                Text(result, color = colors.TextPrimary, fontSize = 14.sp)
+                Spacer(Modifier.height(18.dp))
+                Box(
+                    modifier = Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp)).background(colors.Accent)
+                        .clickable(onClick = onDismiss)
+                        .padding(vertical = 11.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Close", color = colors.TextOnAccent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
     }
 }

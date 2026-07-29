@@ -54,7 +54,9 @@ data class GameState(
     val pendingTap: Point? = null,
     val doubleTapActive: Boolean = false,
     val confirmMoveQueued: Point? = null,
-    val placeSoundIndex: Int = 0
+    val placeSoundIndex: Int = 0,
+    val showTerritoryDialog: Boolean = false,
+    val territoryResult: String = ""
 )
 
 class GameViewModel : ViewModel() {
@@ -335,6 +337,25 @@ class GameViewModel : ViewModel() {
     fun hideModelSelector() { _state.value = _state.value.copy(showModelSelector = false) }
     fun showSettingsDialog() { _state.value = _state.value.copy(showSettings = true) }
     fun hideSettingsDialog() { _state.value = _state.value.copy(showSettings = false) }
+
+    fun showTerritoryDialog() {
+        estimateScore()
+        _state.value = _state.value.copy(showTerritoryDialog = true)
+    }
+    fun hideTerritoryDialog() { _state.value = _state.value.copy(showTerritoryDialog = false, territoryResult = "") }
+
+    private fun estimateScore() {
+        val s = _state.value
+        viewModelScope.launch {
+            if (s.board.isGameOver) {
+                val score = engine?.getFinalScore()
+                _state.value = _state.value.copy(territoryResult = score ?: "No result")
+            } else {
+                val msg = "Black captured: ${s.capturedByBlack}\nWhite captured: ${s.capturedByWhite}"
+                _state.value = _state.value.copy(territoryResult = msg)
+            }
+        }
+    }
     fun toggleCoordinates() { _state.value = _state.value.copy(showCoordinates = !_state.value.showCoordinates) }
     fun toggleSound() { _state.value = _state.value.copy(soundEnabled = !_state.value.soundEnabled) }
     fun setTheme(theme: GameTheme) { _state.value = _state.value.copy(currentTheme = theme) }
