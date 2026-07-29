@@ -135,7 +135,10 @@ class GameViewModel : ViewModel() {
 
     fun onBoardTap(x: Int, y: Int) {
         val s = _state.value
-        if (s.gameMode == GameMode.ANALYZE) return
+        if (s.gameMode == GameMode.ANALYZE) {
+            freePlaceStone(Point(x, y))
+            return
+        }
         if (!s.isPlayerTurn || s.isThinking) return
         if (s.board.isGameOver) return
 
@@ -144,6 +147,21 @@ class GameViewModel : ViewModel() {
             PlacementMode.DOUBLE_TAP -> handleDoubleTap(Point(x, y))
             PlacementMode.CONFIRM -> handleConfirmTap(Point(x, y))
         }
+    }
+
+    // Free placement in analysis mode — no engine interaction
+    private var freeStoneColor = StoneColor.BLACK
+    private fun freePlaceStone(point: Point) {
+        val s = _state.value
+        if (!s.board.isLegalMove(point, freeStoneColor)) return
+        s.board.playMove(Move.Stone(point, freeStoneColor))
+        val color = freeStoneColor
+        freeStoneColor = freeStoneColor.opposite()
+        _state.value = s.copy(
+            lastMovePoint = point,
+            capturedByBlack = s.board.getCapturedWhite(),
+            capturedByWhite = s.board.getCapturedBlack()
+        )
     }
 
     private fun handleDoubleTap(point: Point) {
@@ -370,6 +388,12 @@ class GameViewModel : ViewModel() {
     fun setGameMode(mode: GameMode) {
         if (mode == _state.value.gameMode) return
         if (mode == GameMode.ANALYZE) {
+            // Determine starting color from last move
+            val lastMove = _state.value.board.getLastMove()
+            freeStoneColor = when (val m = lastMove) {
+                is Move.Stone -> m.color.opposite()
+                else -> StoneColor.BLACK
+            }
             val moves = recorder.rebuildAnalysisMoves()
             _state.value = _state.value.copy(
                 gameMode = GameMode.ANALYZE,
@@ -424,6 +448,7 @@ class GameViewModel : ViewModel() {
 
     fun startNewGame(playerColor: StoneColor, boardSize: Int) {
         val s = _state.value
+        freeStoneColor = StoneColor.BLACK
         recorder.reset()
         val newBoard = GoBoard(boardSize)
         val isPlayerFirst = playerColor == StoneColor.BLACK

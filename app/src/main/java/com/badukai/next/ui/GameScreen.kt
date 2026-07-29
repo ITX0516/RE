@@ -456,7 +456,7 @@ private fun AnalysisContent(
             ) {
                 GoBoard(
                     board = state.board, lastMovePoint = state.lastMovePoint,
-                    onIntersectionTap = { _, _ -> }, enabled = false,
+                    onIntersectionTap = onBoardTap, enabled = true,
                     showCoordinates = state.showCoordinates
                 )
             }
