@@ -2,7 +2,7 @@ name: Build BadukNext APK
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [ master, main, refactor ]
   pull_request:
     branches: [ master, main ]
   workflow_dispatch:
