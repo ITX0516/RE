@@ -110,7 +110,7 @@ fun GameScreen(
                     }
                 }
 
-                IconButton(onClick = onSettings, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = onShowSettings, modifier = Modifier.size(36.dp)) {
                     Text("\u2699", fontSize = 16.sp, color = colors.TextSecondary)
                 }
             }
@@ -211,8 +211,6 @@ fun GameScreen(
 // ──────────────────────────────────────────────
 // Mode Tabs
 // ──────────────────────────────────────────────
-@Composable
-
 // ── New Footer composables ──
 @Composable
 private fun GameInfoChip(label: String, captured: Int, isCurrent: Boolean) {
