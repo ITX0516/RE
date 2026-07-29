@@ -502,9 +502,9 @@ private fun AnalysisContent(
                 .background(colors.Surface)
         ) {
             when (selectedTab) {
-                AnalysisTab.MOVE_TREE -> MoveTreeContent(state, colors)
-                AnalysisTab.CHART -> ChartPlaceholder(colors)
-                AnalysisTab.CANDIDATES -> CandidatesPlaceholder(colors)
+                AnalysisTab.MOVE_TREE -> MoveTreeContent(state)
+                AnalysisTab.CHART -> ChartPlaceholder()
+                AnalysisTab.CANDIDATES -> CandidatesPlaceholder()
             }
         }
 
@@ -513,7 +513,8 @@ private fun AnalysisContent(
 }
 
 @Composable
-private fun MoveTreeContent(state: GameState, colors: ThemeColors) {
+private fun MoveTreeContent(state: GameState) {
+    val colors = BadukNextColors
     if (state.analysisMoves.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No moves recorded", color = colors.TextSecondary, fontSize = 12.sp)
@@ -558,7 +559,8 @@ private fun MoveTreeContent(state: GameState, colors: ThemeColors) {
 }
 
 @Composable
-private fun ChartPlaceholder(colors: ThemeColors) {
+private fun ChartPlaceholder() {
+    val colors = BadukNextColors
     val lineColor = colors.Divider
     val textColor = colors.TextSecondary
 
@@ -585,7 +587,8 @@ private fun ChartPlaceholder(colors: ThemeColors) {
 }
 
 @Composable
-private fun CandidatesPlaceholder(colors: ThemeColors) {
+private fun CandidatesPlaceholder() {
+    val colors = BadukNextColors
     Column(
         modifier = Modifier.fillMaxSize().padding(10.dp),
         verticalArrangement = Arrangement.Center,
@@ -929,6 +932,43 @@ private fun CollapsibleSection(
         }
         AnimatedVisibility(visible = expanded) {
             Column(modifier = Modifier.padding(start = 4.dp), content = content)
+        }
+    }
+}
+
+@Composable
+private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onToggle: () -> Unit) {
+    val colors = BadukNextColors
+    Row(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(onClick = onToggle).padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = colors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = colors.TextSecondary, fontSize = 11.sp)
+        }
+        Switch(
+            checked = checked, onCheckedChange = { onToggle() },
+            colors = SwitchDefaults.colors(checkedThumbColor = colors.TextOnAccent, checkedTrackColor = colors.Accent, uncheckedThumbColor = colors.Surface, uncheckedTrackColor = colors.Divider)
+        )
+    }
+}
+
+@Composable
+private fun SettingsRadioOption(label: String, selected: Boolean, onClick: () -> Unit) {
+    val colors = BadukNextColors
+    Box(
+        modifier = Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) colors.AccentLight else colors.SurfaceVariant)
+            .border(1.dp, if (selected) colors.Accent else colors.Divider, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(16.dp).clip(CircleShape).border(if (selected) 5.dp else 1.5.dp, if (selected) colors.Accent else colors.TextSecondary, CircleShape))
+            Spacer(Modifier.width(10.dp))
+            Text(label, color = colors.TextPrimary, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
         }
     }
 }

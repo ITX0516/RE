@@ -76,7 +76,6 @@ class GameViewModel : ViewModel() {
         }
         if (soundPlayer == null) {
             soundPlayer = StoneSoundPlayer(context)
-            soundPlayer?.load()
         }
         recorder.reset()
     }
