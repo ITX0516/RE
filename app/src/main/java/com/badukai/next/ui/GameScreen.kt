@@ -847,18 +847,23 @@ private fun SettingsDialog(
                     Spacer(Modifier.height(8.dp))
                     Text("Place sound", fontSize = 12.sp, color = colors.TextSecondary)
                     Spacer(Modifier.height(4.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("Sound 1" to 0, "Sound 2" to 1).forEach { (label, idx) ->
+                    // 5 sounds in a horizontal row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        for (i in 0 until 5) {
+                            val label = "S${i + 1}"
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(if (idx == placeSoundIndex) colors.AccentLight else colors.SurfaceVariant)
-                                    .border(1.dp, if (idx == placeSoundIndex) colors.Accent else colors.Divider, RoundedCornerShape(8.dp))
-                                    .clickable { onSetPlaceSound(idx) }
-                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                    .background(if (i == placeSoundIndex) colors.AccentLight else colors.SurfaceVariant)
+                                    .border(1.dp, if (i == placeSoundIndex) colors.Accent else colors.Divider, RoundedCornerShape(8.dp))
+                                    .clickable { onSetPlaceSound(i) }
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(label, color = if (idx == placeSoundIndex) colors.Accent else colors.TextPrimary, fontSize = 12.sp, fontWeight = if (idx == placeSoundIndex) FontWeight.SemiBold else FontWeight.Normal)
+                                Text(label, color = if (i == placeSoundIndex) colors.Accent else colors.TextPrimary, fontSize = 12.sp, fontWeight = if (i == placeSoundIndex) FontWeight.SemiBold else FontWeight.Normal)
                             }
                         }
                     }
