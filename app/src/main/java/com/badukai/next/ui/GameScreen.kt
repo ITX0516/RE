@@ -54,6 +54,7 @@ fun GameScreen(
     onAnalysisNext: () -> Unit,
     onConfirmMove: () -> Unit,
     onCancelMove: () -> Unit,
+    onSetPlaceSound: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LaunchedEffect(state.currentTheme) { BadukNextColors.setTheme(state.currentTheme) }
@@ -116,11 +117,13 @@ fun GameScreen(
             soundEnabled = state.soundEnabled,
             currentTheme = state.currentTheme,
             currentPlacementMode = state.placementMode,
+            placeSoundIndex = state.placeSoundIndex,
             onDismiss = onDismissSettings,
             onToggleCoordinates = onToggleCoordinates,
             onToggleSound = onToggleSound,
             onSetTheme = onSetTheme,
-            onSetPlacementMode = onSetPlacementMode
+            onSetPlacementMode = onSetPlacementMode,
+            onSetPlaceSound = onSetPlaceSound
         )
     }
 }
@@ -767,49 +770,74 @@ private fun SettingsDialog(
     soundEnabled: Boolean,
     currentTheme: GameTheme,
     currentPlacementMode: PlacementMode,
+    placeSoundIndex: Int,
     onDismiss: () -> Unit,
     onToggleCoordinates: () -> Unit,
     onToggleSound: () -> Unit,
     onSetTheme: (GameTheme) -> Unit,
-    onSetPlacementMode: (PlacementMode) -> Unit
+    onSetPlacementMode: (PlacementMode) -> Unit,
+    onSetPlaceSound: (Int) -> Unit
 ) {
     val colors = BadukNextColors
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(16.dp), color = colors.Surface, shadowElevation = 6.dp) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Settings", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.TextPrimary)
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(14.dp))
 
-                ToggleRow("Coordinates", "Show board letters and numbers", showCoordinates, onToggleCoordinates)
-                Spacer(Modifier.height(12.dp))
-                ToggleRow("Sound", "Stone placement sounds", soundEnabled, onToggleSound)
-                Spacer(Modifier.height(12.dp))
-
-                // ── Placement mode ──
-                Text("Placement", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.TextSecondary)
-                Spacer(Modifier.height(6.dp))
-                PlacementMode.entries.forEach { mode ->
-                    SettingsRadioOption(
-                        label = mode.displayName,
-                        selected = mode == currentPlacementMode,
-                        onClick = { onSetPlacementMode(mode) }
-                    )
+                // ── Sound (collapsible) ──
+                CollapsibleSection(title = "Sound", defaultExpanded = false) {
+                    ToggleRow("Sound On", "Stone placement and capture sounds", soundEnabled, onToggleSound)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Place sound", fontSize = 12.sp, color = colors.TextSecondary)
                     Spacer(Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("Sound 1" to 0, "Sound 2" to 1).forEach { (label, idx) ->
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (idx == placeSoundIndex) colors.AccentLight else colors.SurfaceVariant)
+                                    .border(1.dp, if (idx == placeSoundIndex) colors.Accent else colors.Divider, RoundedCornerShape(8.dp))
+                                    .clickable { onSetPlaceSound(idx) }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(label, color = if (idx == placeSoundIndex) colors.Accent else colors.TextPrimary, fontSize = 12.sp, fontWeight = if (idx == placeSoundIndex) FontWeight.SemiBold else FontWeight.Normal)
+                            }
+                        }
+                    }
                 }
 
-                Spacer(Modifier.height(14.dp))
-                Divider(color = colors.Divider)
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(10.dp))
 
-                Text("Theme", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.TextSecondary)
-                Spacer(Modifier.height(6.dp))
-                GameTheme.entries.forEach { theme ->
-                    SettingsRadioOption(
-                        label = theme.displayName,
-                        selected = theme == currentTheme,
-                        onClick = { onSetTheme(theme) }
-                    )
+                // ── Game (collapsible) ──
+                CollapsibleSection(title = "Game", defaultExpanded = false) {
+                    ToggleRow("Coordinates", "Show board letters and numbers", showCoordinates, onToggleCoordinates)
+                    Spacer(Modifier.height(10.dp))
+                    Text("Placement mode", fontSize = 12.sp, color = colors.TextSecondary)
                     Spacer(Modifier.height(4.dp))
+                    PlacementMode.entries.forEach { mode ->
+                        SettingsRadioOption(
+                            label = mode.displayName,
+                            selected = mode == currentPlacementMode,
+                            onClick = { onSetPlacementMode(mode) }
+                        )
+                        Spacer(Modifier.height(4.dp))
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                // ── Theme (collapsible) ──
+                CollapsibleSection(title = "Theme", defaultExpanded = false) {
+                    GameTheme.entries.forEach { theme ->
+                        SettingsRadioOption(
+                            label = theme.displayName,
+                            selected = theme == currentTheme,
+                            onClick = { onSetTheme(theme) }
+                        )
+                        Spacer(Modifier.height(4.dp))
+                    }
                 }
 
                 Spacer(Modifier.height(14.dp))
@@ -822,38 +850,32 @@ private fun SettingsDialog(
 }
 
 @Composable
-private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onToggle: () -> Unit) {
+private fun CollapsibleSection(
+    title: String,
+    defaultExpanded: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit
+) {
     val colors = BadukNextColors
-    Row(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(onClick = onToggle).padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = colors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            Text(subtitle, color = colors.TextSecondary, fontSize = 11.sp)
-        }
-        Switch(
-            checked = checked, onCheckedChange = { onToggle() },
-            colors = SwitchDefaults.colors(checkedThumbColor = colors.TextOnAccent, checkedTrackColor = colors.Accent, uncheckedThumbColor = colors.Surface, uncheckedTrackColor = colors.Divider)
-        )
-    }
-}
+    var expanded by remember { mutableStateOf(defaultExpanded) }
 
-@Composable
-private fun SettingsRadioOption(label: String, selected: Boolean, onClick: () -> Unit) {
-    val colors = BadukNextColors
-    Box(
-        modifier = Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (selected) colors.AccentLight else colors.SurfaceVariant)
-            .border(1.dp, if (selected) colors.Accent else colors.Divider, RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(16.dp).clip(CircleShape).border(if (selected) 5.dp else 1.5.dp, if (selected) colors.Accent else colors.TextSecondary, CircleShape))
-            Spacer(Modifier.width(10.dp))
-            Text(label, color = colors.TextPrimary, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { expanded = !expanded }
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.TextPrimary)
+            Text(
+                if (expanded) "\u25B2" else "\u25BC",
+                fontSize = 12.sp,
+                color = colors.TextSecondary
+            )
+        }
+        AnimatedVisibility(visible = expanded) {
+            Column(modifier = Modifier.padding(start = 4.dp), content = content)
         }
     }
 }

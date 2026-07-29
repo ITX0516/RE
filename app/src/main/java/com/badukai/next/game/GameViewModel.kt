@@ -53,7 +53,8 @@ data class GameState(
     val analysisMoves: List<RecordedMove> = emptyList(),
     val pendingTap: Point? = null,
     val doubleTapActive: Boolean = false,
-    val confirmMoveQueued: Point? = null
+    val confirmMoveQueued: Point? = null,
+    val placeSoundIndex: Int = 0
 )
 
 class GameViewModel : ViewModel() {
@@ -338,6 +339,10 @@ class GameViewModel : ViewModel() {
     fun toggleCoordinates() { _state.value = _state.value.copy(showCoordinates = !_state.value.showCoordinates) }
     fun toggleSound() { _state.value = _state.value.copy(soundEnabled = !_state.value.soundEnabled) }
     fun setTheme(theme: GameTheme) { _state.value = _state.value.copy(currentTheme = theme) }
+    fun setPlaceSoundIndex(idx: Int) {
+        _state.value = _state.value.copy(placeSoundIndex = idx)
+        soundPlayer?.setPlaceSound(idx)
+    }
     fun setPlacementMode(mode: PlacementMode) {
         _state.value = _state.value.copy(placementMode = mode, pendingTap = null, doubleTapActive = false, confirmMoveQueued = null)
     }

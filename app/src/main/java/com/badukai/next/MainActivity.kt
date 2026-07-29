@@ -48,6 +48,7 @@ class MainActivity : ComponentActivity() {
                 onAnalysisNext = viewModel::analysisNext,
                 onConfirmMove = viewModel::confirmMove,
                 onCancelMove = viewModel::cancelMove,
+                onSetPlaceSound = viewModel::setPlaceSoundIndex,
                 modifier = Modifier
                     .fillMaxSize()
                     .systemBarsPadding()
