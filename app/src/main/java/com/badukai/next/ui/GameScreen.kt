@@ -239,32 +239,33 @@ private fun PlayContent(
         }
 
         // ── Confirm/Cancel overlay for CONFIRM mode ──
-        if (state.placementMode == PlacementMode.CONFIRM && state.confirmMoveQueued != null) {
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Box(
-                    modifier = Modifier.weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(colors.Surface)
-                        .border(1.dp, colors.Divider, RoundedCornerShape(8.dp))
-                        .clickable(onClick = onCancelMove)
-                        .padding(vertical = 10.dp),
-                    contentAlignment = Alignment.Center
+        Box(modifier = Modifier.height(42.dp).fillMaxWidth()) {
+            if (state.placementMode == PlacementMode.CONFIRM && state.confirmMoveQueued != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Cancel", color = colors.TextPrimary, fontWeight = FontWeight.Medium)
-                }
-                Box(
-                    modifier = Modifier.weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(colors.Accent)
-                        .clickable(onClick = onConfirmMove)
-                        .padding(vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("Place Here", color = colors.TextOnAccent, fontWeight = FontWeight.SemiBold)
+                    Box(
+                        modifier = Modifier.weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.Surface)
+                            .border(1.dp, colors.Divider, RoundedCornerShape(8.dp))
+                            .clickable(onClick = onCancelMove)
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Cancel", color = colors.TextPrimary, fontWeight = FontWeight.Medium)
+                    }
+                    Box(
+                        modifier = Modifier.weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.Accent)
+                            .clickable(onClick = onConfirmMove)
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Place Here", color = colors.TextOnAccent, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }
@@ -356,7 +357,8 @@ private fun PlayStatusBar(
                 color = colors.TextPrimary,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                maxLines = 1
             )
             Text(
                 text = "${state.boardSize}\u00D7${state.boardSize}",

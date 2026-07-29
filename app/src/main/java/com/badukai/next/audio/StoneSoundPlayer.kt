@@ -96,17 +96,37 @@ class StoneSoundPlayer(context: Context) {
         val byteRate = sampleRate * blockAlign
 
         dos.writeBytes("RIFF")
-        dos.writeInt(Integer.reverseBytes(fileSize))
+        dos.write(byteArrayOf(
+            (fileSize and 0xFF).toByte(),
+            ((fileSize shr 8) and 0xFF).toByte(),
+            ((fileSize shr 16) and 0xFF).toByte(),
+            ((fileSize shr 24) and 0xFF).toByte()
+        ))
         dos.writeBytes("WAVE")
         dos.writeBytes("fmt ")
-        dos.writeInt(Integer.reverseBytes(16)) // subchunk1 size
-        dos.writeShort(Integer.reverseBytes(1)) // PCM
-        dos.writeShort(Integer.reverseBytes(channels))
-        dos.writeInt(Integer.reverseBytes(sampleRate))
-        dos.writeInt(Integer.reverseBytes(byteRate))
-        dos.writeShort(Integer.reverseBytes(blockAlign))
-        dos.writeShort(Integer.reverseBytes(bitsPerSample))
+        dos.write(byteArrayOf(16, 0, 0, 0)) // subchunk1 size = 16 LE
+        dos.write(byteArrayOf(1, 0)) // PCM = 1 LE
+        dos.write(byteArrayOf(channels.toByte(), 0)) // channels LE
+        dos.write(byteArrayOf(
+            (sampleRate and 0xFF).toByte(),
+            ((sampleRate shr 8) and 0xFF).toByte(),
+            ((sampleRate shr 16) and 0xFF).toByte(),
+            ((sampleRate shr 24) and 0xFF).toByte()
+        ))
+        dos.write(byteArrayOf(
+            (byteRate and 0xFF).toByte(),
+            ((byteRate shr 8) and 0xFF).toByte(),
+            ((byteRate shr 16) and 0xFF).toByte(),
+            ((byteRate shr 24) and 0xFF).toByte()
+        ))
+        dos.write(byteArrayOf((blockAlign and 0xFF).toByte(), ((blockAlign shr 8) and 0xFF).toByte()))
+        dos.write(byteArrayOf((bitsPerSample and 0xFF).toByte(), ((bitsPerSample shr 8) and 0xFF).toByte()))
         dos.writeBytes("data")
-        dos.writeInt(Integer.reverseBytes(dataSize))
+        dos.write(byteArrayOf(
+            (dataSize and 0xFF).toByte(),
+            ((dataSize shr 8) and 0xFF).toByte(),
+            ((dataSize shr 16) and 0xFF).toByte(),
+            ((dataSize shr 24) and 0xFF).toByte()
+        ))
     }
 }
