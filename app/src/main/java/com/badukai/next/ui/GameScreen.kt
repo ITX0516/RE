@@ -249,10 +249,10 @@ private fun PlayFooter(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        PlayButton("Territory", onTerritoryEstimate, state.isEngineReady, Modifier.weight(1f))
-        PlayButton("Undo", onUndo, state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() >= 2, Modifier.weight(1f))
-        PlayButton("Pass", onPass, state.isPlayerTurn && !state.isThinking && state.isEngineReady, Modifier.weight(1f))
-        PlayButton("Resign", onResign, state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() > 0, Modifier.weight(1f), isDanger = true)
+        PlayButton("Territory", onTerritoryEstimate, Modifier.weight(1f), state.isEngineReady)
+        PlayButton("Undo", onUndo, Modifier.weight(1f), state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() >= 2)
+        PlayButton("Pass", onPass, Modifier.weight(1f), state.isPlayerTurn && !state.isThinking && state.isEngineReady)
+        PlayButton("Resign", onResign, Modifier.weight(1f), state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() > 0, isDanger = true)
     }
 }
 
