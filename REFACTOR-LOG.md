@@ -156,13 +156,14 @@ PlayFooter 的四个按钮，旧 enabled 条件 → 新条件：
 ### 3.1 精简明细
 
 #### `app/src/main/java/com/badukai/next/ui/GameScreen.kt`
-**删除未使用的 import（4 条）**：
+**删除未使用的 import（3 条）**：
 1. `import androidx.compose.animation.*` → 替换成**具体用到的唯一一项** `import androidx.compose.animation.AnimatedVisibility`。wildcard 改为指名，减小编译 classpath 搜索面。
 2. `import androidx.compose.foundation.lazy.LazyRow` — 文件里 grep "LazyRow" 0 结果 → 真没使用 → 删除。
 3. `import androidx.compose.foundation.lazy.itemsIndexed` — 文件里 grep "itemsIndexed" 0 结果 → 真没使用 → 删除。
-4. `import androidx.compose.ui.geometry.Offset` — 文件里没有任何 `Offset(...)` 构造或 `Offset` 类型显式使用（MoveTree/Chart/Candidates 都没用到坐标）→ 删除。
 
-**结果**：import 从 32 条 → 29 条，wildcard 从 2 个 → 1 个（`layout.*` 是标准 wildcard，保留）。
+（注意：`import androidx.compose.ui.geometry.Offset` **保留**。CI 里发现 ChartPlaceholder 的 Canvas `drawLine(..., start = Offset(x,y), ...)` 仍然使用它；初版误删导致编译失败，已在同一提交内修正。）
+
+**结果**：import 从 32 条 → 30 条，wildcard 从 2 个 → 1 个（`layout.*` 是标准 wildcard，保留）。
 
 #### `app/src/main/java/com/badukai/next/game/GoBoard.kt`
 `getLegalMoves(color: StoneColor): List<Point>` 整个方法在工程内零引用（只在 GoBoard.kt 自身定义处出现一次），属于**潜在有用但目前未用**的 API：
