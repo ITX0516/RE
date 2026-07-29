@@ -36,7 +36,8 @@ fun GoBoard(
     onIntersectionTap: (Int, Int) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    showCoordinates: Boolean = false
+    showCoordinates: Boolean = false,
+    pendingDot: Point? = null
 ) {
     val boardSize = board.size
     val density = LocalDensity.current
@@ -75,6 +76,23 @@ fun GoBoard(
 
             if (showCoordinates) {
                 drawCoordinates(boardSize, padding, cellSize, sizePx)
+            }
+
+            // Draw pending placement dot (for confirm/double-tap modes)
+            if (pendingDot != null) {
+                val px = padding + pendingDot.x * cellSize
+                val py = padding + pendingDot.y * cellSize
+                drawCircle(
+                    color = BadukNextColors.Accent.copy(alpha = 0.35f),
+                    radius = cellSize * 0.22f,
+                    center = Offset(px, py)
+                )
+                drawCircle(
+                    color = BadukNextColors.Accent.copy(alpha = 0.7f),
+                    radius = cellSize * 0.22f,
+                    center = Offset(px, py),
+                    style = Stroke(width = 2f)
+                )
             }
         }
     }

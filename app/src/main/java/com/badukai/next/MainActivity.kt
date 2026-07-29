@@ -19,11 +19,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Enable edge-to-edge
         WindowCompat.setDecorFitsSystemWindows(window, false)
-
-        // Initialize the engine
         viewModel.initialize(applicationContext)
 
         setContent {
@@ -46,6 +42,12 @@ class MainActivity : ComponentActivity() {
                 onToggleCoordinates = viewModel::toggleCoordinates,
                 onToggleSound = viewModel::toggleSound,
                 onSetTheme = viewModel::setTheme,
+                onSetGameMode = viewModel::setGameMode,
+                onSetPlacementMode = viewModel::setPlacementMode,
+                onAnalysisPrev = viewModel::analysisPrev,
+                onAnalysisNext = viewModel::analysisNext,
+                onConfirmMove = viewModel::confirmMove,
+                onCancelMove = viewModel::cancelMove,
                 modifier = Modifier
                     .fillMaxSize()
                     .systemBarsPadding()
@@ -55,15 +57,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        // Start the engine when activity starts
         if (!viewModel.state.value.isEngineReady && !viewModel.state.value.isEngineStarting) {
             viewModel.startEngine()
         }
-    }
-
-    override fun onStop() {
-        super.onStop()
-        // Keep engine running in background for quick resume
     }
 
     override fun onDestroy() {

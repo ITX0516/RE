@@ -1,17 +1,31 @@
 package com.badukai.next.game
 
 import android.content.Context
+import com.badukai.next.analysis.GameRecorder
+import com.badukai.next.analysis.RecordedMove
+import com.badukai.next.audio.StoneSoundPlayer
+import com.badukai.next.engine.KataGoEngine
 import com.badukai.next.logging.AppLogger
+import com.badukai.next.ui.GameTheme
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.badukai.next.engine.KataGoEngine
-import com.badukai.next.ui.GameTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+enum class GameMode(val displayName: String) {
+    PLAY("Play"),
+    ANALYZE("Analyze")
+}
+
+enum class PlacementMode(val displayName: String) {
+    TAP("Single Tap"),
+    DOUBLE_TAP("Double Tap"),
+    CONFIRM("Confirm Button")
+}
 
 data class GameState(
     val board: GoBoard = GoBoard(19),
@@ -32,7 +46,14 @@ data class GameState(
     val showSettings: Boolean = false,
     val showCoordinates: Boolean = true,
     val soundEnabled: Boolean = true,
-    val currentTheme: GameTheme = GameTheme.WARM_LIGHT
+    val currentTheme: GameTheme = GameTheme.WARM_LIGHT,
+    val gameMode: GameMode = GameMode.PLAY,
+    val placementMode: PlacementMode = PlacementMode.TAP,
+    val analysisMoveIndex: Int = 0,
+    val analysisMoves: List<RecordedMove> = emptyList(),
+    val pendingTap: Point? = null,
+    val doubleTapActive: Boolean = false,
+    val confirmMoveQueued: Point? = null
 )
 
 class GameViewModel : ViewModel() {
@@ -42,6 +63,8 @@ class GameViewModel : ViewModel() {
     }
 
     private var engine: KataGoEngine? = null
+    private var soundPlayer: StoneSoundPlayer? = null
+    val recorder = GameRecorder()
 
     private val _state = MutableStateFlow(GameState())
     val state: StateFlow<GameState> = _state.asStateFlow()
@@ -50,11 +73,15 @@ class GameViewModel : ViewModel() {
         if (engine == null) {
             engine = KataGoEngine(context)
         }
+        if (soundPlayer == null) {
+            soundPlayer = StoneSoundPlayer(context)
+            soundPlayer?.load()
+        }
+        recorder.reset()
     }
 
     fun startEngine(model: KataGoEngine.Model = _state.value.selectedModel) {
         val engine = this.engine ?: return
-
         if (_state.value.isEngineStarting) return
 
         _state.value = _state.value.copy(
@@ -65,19 +92,16 @@ class GameViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 val success = engine.start(model)
-
                 if (success) {
                     engine.setBoardSize(_state.value.boardSize)
                     engine.clearBoard()
                     engine.setKomi(7.5f)
-
                     _state.value = _state.value.copy(
                         isEngineReady = true,
                         isEngineStarting = false,
                         selectedModel = model,
                         gameMessage = "Ready to play"
                     )
-
                     if (_state.value.playerColor == StoneColor.WHITE) {
                         requestAiMove()
                     }
@@ -108,26 +132,65 @@ class GameViewModel : ViewModel() {
     }
 
     fun onBoardTap(x: Int, y: Int) {
-        val currentState = _state.value
+        val s = _state.value
+        if (s.gameMode == GameMode.ANALYZE) return
+        if (!s.isPlayerTurn || s.isThinking) return
+        if (s.board.isGameOver) return
 
-        if (!currentState.isPlayerTurn || currentState.isThinking) {
-            AppLogger.d(TAG, "Not player's turn or AI is thinking")
-            return
+        when (s.placementMode) {
+            PlacementMode.TAP -> tryPlaceStone(Point(x, y))
+            PlacementMode.DOUBLE_TAP -> handleDoubleTap(Point(x, y))
+            PlacementMode.CONFIRM -> handleConfirmTap(Point(x, y))
+        }
+    }
+
+    private fun handleDoubleTap(point: Point) {
+        val s = _state.value
+        if (s.doubleTapActive && s.pendingTap == point) {
+            // Second tap on same spot
+            tryPlaceStone(point, resetDoubleTap = true)
+        } else {
+            // First tap or different spot
+            _state.value = s.copy(
+                pendingTap = point,
+                doubleTapActive = true
+            )
+        }
+    }
+
+    private fun handleConfirmTap(point: Point) {
+        val s = _state.value
+        if (s.board.isLegalMove(point, s.currentPlayer)) {
+            _state.value = s.copy(
+                confirmMoveQueued = point,
+                pendingTap = point
+            )
+        }
+    }
+
+    fun confirmMove() {
+        val s = _state.value
+        val point = s.confirmMoveQueued ?: return
+        tryPlaceStone(point)
+        _state.value = _state.value.copy(confirmMoveQueued = null, pendingTap = null)
+    }
+
+    fun cancelMove() {
+        _state.value = _state.value.copy(confirmMoveQueued = null, pendingTap = null)
+    }
+
+    private fun tryPlaceStone(point: Point, resetDoubleTap: Boolean = false) {
+        val s = _state.value
+        if (!s.board.isLegalMove(point, s.currentPlayer)) return
+
+        if (resetDoubleTap) {
+            _state.value = s.copy(doubleTapActive = false, pendingTap = null)
         }
 
-        if (currentState.board.isGameOver) {
-            AppLogger.d(TAG, "Game is over")
-            return
-        }
+        // Sound
+        if (s.soundEnabled) soundPlayer?.playPlace()
 
-        val point = Point(x, y)
-
-        if (!currentState.board.isLegalMove(point, currentState.currentPlayer)) {
-            AppLogger.d(TAG, "Illegal move at $x, $y")
-            return
-        }
-
-        playMove(point, currentState.currentPlayer)
+        playMove(point, s.currentPlayer)
     }
 
     private fun playMove(point: Point, color: StoneColor) {
@@ -150,7 +213,6 @@ class GameViewModel : ViewModel() {
 
         viewModelScope.launch {
             engine?.playMove(color.toGtp(), point.toGtp(currentState.boardSize))
-
             if (!isPlayerTurn && !board.isGameOver) {
                 requestAiMove()
             }
@@ -158,76 +220,54 @@ class GameViewModel : ViewModel() {
     }
 
     private fun requestAiMove() {
-        val currentState = _state.value
-        val engine = this.engine
+        val s = _state.value
+        val e = engine ?: return
+        if (!s.isEngineReady) return
 
-        if (engine == null || !currentState.isEngineReady) {
-            AppLogger.e(TAG, "Engine not ready")
-            return
-        }
-
-        _state.value = currentState.copy(isThinking = true, gameMessage = "AI thinking...")
+        _state.value = s.copy(isThinking = true, gameMessage = "AI thinking...")
 
         viewModelScope.launch {
             try {
-                val aiColor = currentState.currentPlayer
-                val move = engine.generateMove(aiColor.toGtp())
-
-                withContext(Dispatchers.Main) {
-                    handleAiMove(move, aiColor)
-                }
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Error getting AI move", e)
-                _state.value = _state.value.copy(
-                    isThinking = false,
-                    gameMessage = "AI error: ${e.message}"
-                )
+                val aiColor = s.currentPlayer
+                val move = e.generateMove(aiColor.toGtp())
+                withContext(Dispatchers.Main) { handleAiMove(move, aiColor) }
+            } catch (ex: Exception) {
+                AppLogger.e(TAG, "AI move error", ex)
+                _state.value = _state.value.copy(isThinking = false, gameMessage = "AI error: ${ex.message}")
             }
         }
     }
 
     private fun handleAiMove(move: String?, color: StoneColor) {
-        val currentState = _state.value
-
-        _state.value = currentState.copy(isThinking = false)
+        val s = _state.value
+        _state.value = s.copy(isThinking = false)
 
         when {
-            move == null -> {
-                _state.value = _state.value.copy(gameMessage = "AI returned no move")
-            }
+            move == null -> _state.value = _state.value.copy(gameMessage = "AI returned no move")
             move.equals("pass", ignoreCase = true) -> {
-                currentState.board.playMove(Move.Pass(color))
+                s.board.playMove(Move.Pass(color))
                 _state.value = _state.value.copy(
-                    currentPlayer = color.opposite(),
-                    isPlayerTurn = true,
-                    lastMovePoint = null,
-                    gameMessage = "AI passed. Your turn"
+                    currentPlayer = color.opposite(), isPlayerTurn = true,
+                    lastMovePoint = null, gameMessage = "AI passed. Your turn"
                 )
-
-                if (currentState.board.isGameOver) {
-                    handleGameEnd()
-                }
+                if (s.board.isGameOver) handleGameEnd()
             }
             move.equals("resign", ignoreCase = true) -> {
-                currentState.board.playMove(Move.Resign(color))
-                _state.value = _state.value.copy(
-                    gameMessage = "AI resigned. You win!"
-                )
+                s.board.playMove(Move.Resign(color))
+                _state.value = _state.value.copy(gameMessage = "AI resigned. You win!")
             }
             else -> {
-                val point = Point.fromGtp(move, currentState.boardSize)
-                if (point != null) {
-                    currentState.board.playMove(Move.Stone(point, color))
+                val pt = Point.fromGtp(move, s.boardSize)
+                if (pt != null) {
+                    s.board.playMove(Move.Stone(pt, color))
                     _state.value = _state.value.copy(
-                        currentPlayer = color.opposite(),
-                        isPlayerTurn = true,
-                        lastMovePoint = point,
-                        capturedByBlack = currentState.board.getCapturedWhite(),
-                        capturedByWhite = currentState.board.getCapturedBlack(),
+                        currentPlayer = color.opposite(), isPlayerTurn = true,
+                        lastMovePoint = pt,
+                        capturedByBlack = s.board.getCapturedWhite(),
+                        capturedByWhite = s.board.getCapturedBlack(),
                         gameMessage = "Your turn"
                     )
                 } else {
-                    AppLogger.e(TAG, "Failed to parse AI move: $move")
                     _state.value = _state.value.copy(gameMessage = "AI error")
                 }
             }
@@ -235,41 +275,23 @@ class GameViewModel : ViewModel() {
     }
 
     fun pass() {
-        val currentState = _state.value
-
-        if (!currentState.isPlayerTurn || currentState.isThinking) return
-
-        currentState.board.playMove(Move.Pass(currentState.currentPlayer))
-
-        viewModelScope.launch {
-            engine?.playMove(currentState.currentPlayer.toGtp(), "pass")
-        }
-
-        if (currentState.board.isGameOver) {
-            handleGameEnd()
-            return
-        }
-
-        val newPlayer = currentState.currentPlayer.opposite()
-        _state.value = currentState.copy(
-            currentPlayer = newPlayer,
-            isPlayerTurn = false,
-            lastMovePoint = null,
-            gameMessage = "You passed. AI thinking..."
+        val s = _state.value
+        if (!s.isPlayerTurn || s.isThinking) return
+        s.board.playMove(Move.Pass(s.currentPlayer))
+        viewModelScope.launch { engine?.playMove(s.currentPlayer.toGtp(), "pass") }
+        if (s.board.isGameOver) { handleGameEnd(); return }
+        _state.value = s.copy(
+            currentPlayer = s.currentPlayer.opposite(), isPlayerTurn = false,
+            lastMovePoint = null, gameMessage = "You passed. AI thinking..."
         )
-
         requestAiMove()
     }
 
     fun resign() {
-        val currentState = _state.value
-
-        currentState.board.playMove(Move.Resign(currentState.playerColor))
-
-        val winner = if (currentState.playerColor == StoneColor.BLACK) "White" else "Black"
-        _state.value = currentState.copy(
-            gameMessage = "You resigned. $winner wins!"
-        )
+        val s = _state.value
+        s.board.playMove(Move.Resign(s.playerColor))
+        val winner = if (s.playerColor == StoneColor.BLACK) "White" else "Black"
+        _state.value = s.copy(gameMessage = "You resigned. $winner wins!")
     }
 
     private fun handleGameEnd() {
@@ -282,110 +304,122 @@ class GameViewModel : ViewModel() {
     }
 
     fun undo() {
-        val currentState = _state.value
-
-        if (currentState.isThinking) return
-        if (currentState.board.getMoveCount() < 2) return
-
-        currentState.board.undo()
-        currentState.board.undo()
-
-        viewModelScope.launch {
-            engine?.undo()
-            engine?.undo()
-        }
-
-        val lastMove = currentState.board.getLastMove()
-        val lastPoint = (lastMove as? Move.Stone)?.point
-
-        _state.value = currentState.copy(
-            currentPlayer = currentState.playerColor,
-            isPlayerTurn = true,
-            lastMovePoint = lastPoint,
-            capturedByBlack = currentState.board.getCapturedWhite(),
-            capturedByWhite = currentState.board.getCapturedBlack(),
+        val s = _state.value
+        if (s.isThinking || s.board.getMoveCount() < 2) return
+        s.board.undo(); s.board.undo()
+        viewModelScope.launch { engine?.undo(); engine?.undo() }
+        val lastMove = s.board.getLastMove()
+        _state.value = s.copy(
+            currentPlayer = s.playerColor, isPlayerTurn = true,
+            lastMovePoint = (lastMove as? Move.Stone)?.point,
+            capturedByBlack = s.board.getCapturedWhite(),
+            capturedByWhite = s.board.getCapturedBlack(),
             gameMessage = "Undone. Your turn"
         )
     }
 
-    fun showNewGameDialog() {
-        _state.value = _state.value.copy(showNewGameDialog = true)
+    fun showNewGameDialog() { _state.value = _state.value.copy(showNewGameDialog = true) }
+    fun hideNewGameDialog() { _state.value = _state.value.copy(showNewGameDialog = false) }
+    fun showModelSelector() { _state.value = _state.value.copy(showModelSelector = true) }
+    fun hideModelSelector() { _state.value = _state.value.copy(showModelSelector = false) }
+    fun showSettingsDialog() { _state.value = _state.value.copy(showSettings = true) }
+    fun hideSettingsDialog() { _state.value = _state.value.copy(showSettings = false) }
+    fun toggleCoordinates() { _state.value = _state.value.copy(showCoordinates = !_state.value.showCoordinates) }
+    fun toggleSound() { _state.value = _state.value.copy(soundEnabled = !_state.value.soundEnabled) }
+    fun setTheme(theme: GameTheme) { _state.value = _state.value.copy(currentTheme = theme) }
+    fun setPlacementMode(mode: PlacementMode) {
+        _state.value = _state.value.copy(placementMode = mode, pendingTap = null, doubleTapActive = false, confirmMoveQueued = null)
     }
 
-    fun hideNewGameDialog() {
-        _state.value = _state.value.copy(showNewGameDialog = false)
+    fun setGameMode(mode: GameMode) {
+        if (mode == _state.value.gameMode) return
+        if (mode == GameMode.ANALYZE) {
+            val moves = recorder.rebuildAnalysisMoves()
+            _state.value = _state.value.copy(
+                gameMode = GameMode.ANALYZE,
+                analysisMoves = moves,
+                analysisMoveIndex = moves.size
+            )
+            if (moves.isNotEmpty()) navigateToMove(moves.size)
+        } else {
+            _state.value = _state.value.copy(
+                gameMode = GameMode.PLAY,
+                analysisMoveIndex = 0,
+                analysisMoves = emptyList()
+            )
+        }
     }
 
-    fun showModelSelector() {
-        _state.value = _state.value.copy(showModelSelector = true)
+    fun navigateToMove(targetIndex: Int) {
+        val s = _state.value
+        val moves = s.analysisMoves
+        if (moves.isEmpty() || targetIndex < 0 || targetIndex > moves.size) return
+
+        // Rebuild board state up to targetIndex
+        val replayBoard = GoBoard(s.boardSize)
+        for (i in 0 until targetIndex) {
+            replayBoard.playMove(moves[i].move)
+        }
+
+        val lastMove = if (targetIndex > 0) (moves[targetIndex - 1].move as? Move.Stone)?.point else null
+
+        _state.value = s.copy(
+            board = replayBoard,
+            analysisMoveIndex = targetIndex,
+            lastMovePoint = lastMove,
+            capturedByBlack = replayBoard.getCapturedWhite(),
+            capturedByWhite = replayBoard.getCapturedBlack()
+        )
     }
 
-    fun hideModelSelector() {
-        _state.value = _state.value.copy(showModelSelector = false)
+    fun analysisNext() {
+        val s = _state.value
+        if (s.analysisMoveIndex < s.analysisMoves.size) {
+            navigateToMove(s.analysisMoveIndex + 1)
+        }
     }
 
-    fun showSettingsDialog() {
-        _state.value = _state.value.copy(showSettings = true)
-    }
-
-    fun hideSettingsDialog() {
-        _state.value = _state.value.copy(showSettings = false)
-    }
-
-    fun toggleCoordinates() {
-        _state.value = _state.value.copy(showCoordinates = !_state.value.showCoordinates)
-    }
-
-    fun toggleSound() {
-        _state.value = _state.value.copy(soundEnabled = !_state.value.soundEnabled)
-    }
-
-    fun setTheme(theme: GameTheme) {
-        _state.value = _state.value.copy(currentTheme = theme)
+    fun analysisPrev() {
+        val s = _state.value
+        if (s.analysisMoveIndex > 0) {
+            navigateToMove(s.analysisMoveIndex - 1)
+        }
     }
 
     fun startNewGame(playerColor: StoneColor, boardSize: Int) {
-        val currentState = _state.value
-
+        val s = _state.value
+        recorder.reset()
         val newBoard = GoBoard(boardSize)
         val isPlayerFirst = playerColor == StoneColor.BLACK
-
-        _state.value = currentState.copy(
-            board = newBoard,
-            boardSize = boardSize,
-            currentPlayer = StoneColor.BLACK,
-            playerColor = playerColor,
-            isPlayerTurn = isPlayerFirst,
-            lastMovePoint = null,
-            capturedByBlack = 0,
-            capturedByWhite = 0,
+        _state.value = s.copy(
+            board = newBoard, boardSize = boardSize,
+            currentPlayer = StoneColor.BLACK, playerColor = playerColor,
+            isPlayerTurn = isPlayerFirst, lastMovePoint = null,
+            capturedByBlack = 0, capturedByWhite = 0,
             gameMessage = if (isPlayerFirst) "Your turn" else "AI thinking...",
-            showNewGameDialog = false
+            showNewGameDialog = false, gameMode = GameMode.PLAY
         )
-
         viewModelScope.launch {
-            engine?.setBoardSize(boardSize)
-            engine?.clearBoard()
+            engine?.setBoardSize(boardSize); engine?.clearBoard()
             engine?.setKomi(if (boardSize == 9) 5.5f else 7.5f)
-
-            if (!isPlayerFirst) {
-                requestAiMove()
-            }
+            if (!isPlayerFirst) requestAiMove()
         }
     }
 
     fun selectModel(model: KataGoEngine.Model) {
-        _state.value = _state.value.copy(
-            selectedModel = model,
-            showModelSelector = false
-        )
-
-        stopEngine()
-        startEngine(model)
+        _state.value = _state.value.copy(selectedModel = model, showModelSelector = false)
+        stopEngine(); startEngine(model)
     }
+
+    fun setModelDisplayName(name: String) {
+        // Used by analysis preset selection
+    }
+
+    fun getSoundPlayer(): StoneSoundPlayer? = soundPlayer
 
     override fun onCleared() {
         super.onCleared()
         stopEngine()
+        soundPlayer?.release()
     }
 }
