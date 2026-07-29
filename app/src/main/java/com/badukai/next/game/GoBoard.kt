@@ -270,8 +270,15 @@ class GoBoard(val size: Int = 19) {
     }
 
     /**
-     * Get all legal moves for a color
+     * Enumerate every legal point for [color]. O(N^2 * isLegalMove).
+     *
+     * NOTE: currently unused inside BadukNext itself — kept because it is a
+     * standard, self-contained Go-board primitive that downstream code (AI
+     * move-candidate screening, heat-map rendering, per-move policy UIs) will
+     * want. If it is definitively not needed after the Analysis tab gets real
+     * candidate rendering, it can be deleted then.
      */
+    @Suppress("unused")
     fun getLegalMoves(color: StoneColor): List<Point> {
         val moves = mutableListOf<Point>()
         for (y in 0 until size) {
