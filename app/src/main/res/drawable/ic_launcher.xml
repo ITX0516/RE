@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Go board background -->
+    <path
+        android:fillColor="#DCB468"
+        android:pathData="M12,12 L96,12 L96,96 L12,96 Z" />
+    <!-- Grid lines -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#4A3728"
+        android:strokeWidth="1.5"
+        android:pathData="M30,30 L30,78 M54,30 L54,78 M78,30 L78,78 M30,30 L78,30 M30,54 L78,54 M30,78 L78,78" />
+    <!-- Black stone -->
+    <path
+        android:fillColor="#1A1410"
+        android:pathData="M43,43 m-7,0 a7,7 0,1 1,14 0 a7,7 0,1 1,-14 0" />
+    <!-- White stone -->
+    <path
+        android:fillColor="#F5F0E8"
+        android:strokeColor="#A09080"
+        android:strokeWidth="0.5"
+        android:pathData="M60,60 m-7,0 a7,7 0,1 1,14 0 a7,7 0,1 1,-14 0" />
+</vector>
