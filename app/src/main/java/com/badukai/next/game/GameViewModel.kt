@@ -198,6 +198,7 @@ class GameViewModel : ViewModel() {
         val board = currentState.board
 
         board.playMove(Move.Stone(point, color))
+        recorder.recordMove(Move.Stone(point, color))
 
         val newPlayer = color.opposite()
         val isPlayerTurn = newPlayer == currentState.playerColor
@@ -245,7 +246,9 @@ class GameViewModel : ViewModel() {
         when {
             move == null -> _state.value = _state.value.copy(gameMessage = "AI returned no move")
             move.equals("pass", ignoreCase = true) -> {
-                s.board.playMove(Move.Pass(color))
+                val m = Move.Pass(color)
+                s.board.playMove(m)
+                recorder.recordMove(m)
                 _state.value = _state.value.copy(
                     currentPlayer = color.opposite(), isPlayerTurn = true,
                     lastMovePoint = null, gameMessage = "AI passed. Your turn"
@@ -253,13 +256,17 @@ class GameViewModel : ViewModel() {
                 if (s.board.isGameOver) handleGameEnd()
             }
             move.equals("resign", ignoreCase = true) -> {
-                s.board.playMove(Move.Resign(color))
+                val m = Move.Resign(color)
+                s.board.playMove(m)
+                recorder.recordMove(m)
                 _state.value = _state.value.copy(gameMessage = "AI resigned. You win!")
             }
             else -> {
                 val pt = Point.fromGtp(move, s.boardSize)
                 if (pt != null) {
-                    s.board.playMove(Move.Stone(pt, color))
+                    val m = Move.Stone(pt, color)
+                    s.board.playMove(m)
+                    recorder.recordMove(m)
                     _state.value = _state.value.copy(
                         currentPlayer = color.opposite(), isPlayerTurn = true,
                         lastMovePoint = pt,
@@ -277,7 +284,9 @@ class GameViewModel : ViewModel() {
     fun pass() {
         val s = _state.value
         if (!s.isPlayerTurn || s.isThinking) return
-        s.board.playMove(Move.Pass(s.currentPlayer))
+        val m = Move.Pass(s.currentPlayer)
+        s.board.playMove(m)
+        recorder.recordMove(m)
         viewModelScope.launch { engine?.playMove(s.currentPlayer.toGtp(), "pass") }
         if (s.board.isGameOver) { handleGameEnd(); return }
         _state.value = s.copy(
@@ -289,7 +298,9 @@ class GameViewModel : ViewModel() {
 
     fun resign() {
         val s = _state.value
-        s.board.playMove(Move.Resign(s.playerColor))
+        val m = Move.Resign(s.playerColor)
+        s.board.playMove(m)
+        recorder.recordMove(m)
         val winner = if (s.playerColor == StoneColor.BLACK) "White" else "Black"
         _state.value = s.copy(gameMessage = "You resigned. $winner wins!")
     }
