@@ -42,6 +42,9 @@ class EngineBootstrap(private val context: Context) {
         private const val TAG = "KataGoEngine"
         private const val BINARY_NAME = "libkatago.so"
         private const val CONFIG_NAME = "gtp_static.cfg"
+        private const val ALTERNATE_CONFIG_NAME = "default_gtp.cfg"
+        // Asset subdirectories tried in order (newer, tidier layout first).
+        private val ASSET_PREFIXES = listOf("engine/", "")
     }
 
     /**
@@ -61,7 +64,7 @@ class EngineBootstrap(private val context: Context) {
 
         val binaryFile = File(filesDir, BINARY_NAME)
         if (!binaryFile.exists() || shouldUpdateBinary(binaryFile)) {
-            copyAssetToFile(BINARY_NAME, binaryFile)
+            copyAssetToFileAny(BINARY_NAME, binaryFile)
             // The KataGo executable ships as libkatago.so but must be runnable.
             binaryFile.setExecutable(true)
             AppLogger.i(TAG, "Installed patched KataGo binary")
@@ -69,8 +72,13 @@ class EngineBootstrap(private val context: Context) {
 
         val configFile = File(filesDir, CONFIG_NAME)
         if (!configFile.exists()) {
-            copyAssetToFile(CONFIG_NAME, configFile)
-            AppLogger.i(TAG, "Copied config file: ${configFile.absolutePath}")
+            var copied = tryCopyAssetToFileAny(CONFIG_NAME, configFile)
+            if (!copied) {
+                copied = tryCopyAssetToFileAny(ALTERNATE_CONFIG_NAME, configFile)
+            }
+            if (copied) {
+                AppLogger.i(TAG, "Copied config file: ${configFile.absolutePath}")
+            }
         }
 
         val appDir = File(filesDir, "app")
@@ -78,7 +86,8 @@ class EngineBootstrap(private val context: Context) {
 
         val modelFile = File(appDir, modelFileName)
         if (!modelFile.exists()) {
-            copyAssetToFile("models/$modelFileName", modelFile)
+            // Try bundled models/ first, fall back to user-selected copy handled upstream.
+            tryCopyAssetToFileAny("models/$modelFileName", modelFile)
         }
 
         AppLogger.i(TAG, "Model: ${modelFile.absolutePath} (exists=${modelFile.exists()}, size=${modelFile.length()})")
@@ -99,12 +108,39 @@ class EngineBootstrap(private val context: Context) {
 
     /** Re-release the binary when the bundled asset size differs from the on-disk file. */
     private fun shouldUpdateBinary(binaryFile: File): Boolean {
-        return try {
-            val assetSize = context.assets.open(BINARY_NAME).use { it.available() }
-            binaryFile.length() != assetSize.toLong()
-        } catch (e: Exception) {
-            true
+        return resolveAssetPath(BINARY_NAME)?.let { assetPath ->
+            try {
+                val assetSize = context.assets.open(assetPath).use { it.available() }
+                binaryFile.length() != assetSize.toLong()
+            } catch (e: Exception) {
+                true
+            }
+        } ?: true
+    }
+
+    /** Search for the first asset path that exists (trying ASSET_PREFIXES in order). */
+    private fun resolveAssetPath(name: String): String? {
+        for (prefix in ASSET_PREFIXES) {
+            val p = prefix + name
+            try {
+                context.assets.open(p).use { return p }
+            } catch (_: Exception) { /* not here */ }
         }
+        return null
+    }
+
+    /** Copy a named asset (searches ASSET_PREFIXES) or throw if missing. */
+    private fun copyAssetToFileAny(name: String, outFile: File) {
+        val path = resolveAssetPath(name)
+            ?: error("Asset '$name' not found under prefixes $ASSET_PREFIXES")
+        copyAssetToFile(path, outFile)
+    }
+
+    /** Copy a named asset (searches ASSET_PREFIXES), returning true on success. */
+    private fun tryCopyAssetToFileAny(name: String, outFile: File): Boolean {
+        val path = resolveAssetPath(name) ?: return false
+        copyAssetToFile(path, outFile)
+        return true
     }
 
     private fun copyAssetToFile(assetPath: String, outFile: File) {

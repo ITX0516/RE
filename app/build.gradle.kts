@@ -22,8 +22,19 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Shrink code and resources even on debug to keep APK size small
+            // (keeps line info / deobfuscation via default rules so stack traces remain readable).
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
