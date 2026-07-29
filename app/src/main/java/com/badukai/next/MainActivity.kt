@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
 import com.badukai.next.game.GameViewModel
+import com.badukai.next.ui.BadukNextTheme
 import com.badukai.next.ui.GameScreen
 
 class MainActivity : ComponentActivity() {
@@ -25,36 +26,38 @@ class MainActivity : ComponentActivity() {
         setContent {
             val state by viewModel.state.collectAsState()
 
-            GameScreen(
-                state = state,
-                onBoardTap = viewModel::onBoardTap,
-                onPass = viewModel::pass,
-                onResign = viewModel::resign,
-                onTerritoryEstimate = viewModel::showTerritoryDialog,
-                onUndo = viewModel::undo,
-                onNewGame = viewModel::showNewGameDialog,
-                onStartNewGame = viewModel::startNewGame,
-                onDismissNewGame = viewModel::hideNewGameDialog,
-                onShowModelSelector = viewModel::showModelSelector,
-                onSelectModel = viewModel::selectModel,
-                onDismissModelSelector = viewModel::hideModelSelector,
-                onShowSettings = viewModel::showSettingsDialog,
-                onDismissSettings = viewModel::hideSettingsDialog,
-                onDismissTerritory = viewModel::hideTerritoryDialog,
-                onToggleCoordinates = viewModel::toggleCoordinates,
-                onToggleSound = viewModel::toggleSound,
-                onSetTheme = viewModel::setTheme,
-                onSetGameMode = viewModel::setGameMode,
-                onSetPlacementMode = viewModel::setPlacementMode,
-                onAnalysisPrev = viewModel::analysisPrev,
-                onAnalysisNext = viewModel::analysisNext,
-                onConfirmMove = viewModel::confirmMove,
-                onCancelMove = viewModel::cancelMove,
-                onSetPlaceSound = viewModel::setPlaceSoundIndex,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .systemBarsPadding()
-            )
+            BadukNextTheme(theme = state.currentTheme) {
+                GameScreen(
+                    state = state,
+                    onBoardTap = viewModel::onBoardTap,
+                    onPass = viewModel::pass,
+                    onResign = viewModel::resign,
+                    onTerritoryEstimate = viewModel::showTerritoryDialog,
+                    onUndo = viewModel::undo,
+                    onNewGame = viewModel::showNewGameDialog,
+                    onStartNewGame = viewModel::startNewGame,
+                    onDismissNewGame = viewModel::hideNewGameDialog,
+                    onShowModelSelector = viewModel::showModelSelector,
+                    onSelectModel = viewModel::selectModel,
+                    onDismissModelSelector = viewModel::hideModelSelector,
+                    onShowSettings = viewModel::showSettingsDialog,
+                    onDismissSettings = viewModel::hideSettingsDialog,
+                    onDismissTerritory = viewModel::hideTerritoryDialog,
+                    onToggleCoordinates = viewModel::toggleCoordinates,
+                    onToggleSound = viewModel::toggleSound,
+                    onSetTheme = viewModel::setTheme,
+                    onSetGameMode = viewModel::setGameMode,
+                    onSetPlacementMode = viewModel::setPlacementMode,
+                    onAnalysisPrev = viewModel::analysisPrev,
+                    onAnalysisNext = viewModel::analysisNext,
+                    onConfirmMove = viewModel::confirmMove,
+                    onCancelMove = viewModel::cancelMove,
+                    onSetPlaceSound = viewModel::setPlaceSoundIndex,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .systemBarsPadding()
+                )
+            }
         }
     }
 

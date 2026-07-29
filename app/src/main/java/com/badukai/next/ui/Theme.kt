@@ -1,5 +1,9 @@
 package com.badukai.next.ui
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 enum class GameTheme(val displayName: String) {
@@ -250,55 +254,17 @@ object ThemePresets {
     }
 }
 
-object BadukNextColors {
-    private var _current: ThemeColors = ThemePresets.WARM_LIGHT
-
-    fun setTheme(theme: GameTheme) {
-        _current = ThemePresets.forTheme(theme)
-    }
-
-    fun current(): ThemeColors = _current
-
-    val BoardBackground get() = _current.BoardBackground
-    val BoardLine get() = _current.BoardLine
-    val StarPoint get() = _current.StarPoint
-
-    val BlackStone get() = _current.BlackStone
-    val BlackStoneHighlight get() = _current.BlackStoneHighlight
-    val WhiteStone get() = _current.WhiteStone
-    val WhiteStoneHighlight get() = _current.WhiteStoneHighlight
-    val WhiteStoneBorder get() = _current.WhiteStoneBorder
-
-    val LastMoveMarkerOnBlack get() = _current.LastMoveMarkerOnBlack
-    val LastMoveMarkerOnWhite get() = _current.LastMoveMarkerOnWhite
-    val LastMoveMarker get() = _current.LastMoveMarker
-
-    val Background get() = _current.Background
-    val Surface get() = _current.Surface
-    val SurfaceVariant get() = _current.SurfaceVariant
-
-    val TextPrimary get() = _current.TextPrimary
-    val TextSecondary get() = _current.TextSecondary
-    val TextOnAccent get() = _current.TextOnAccent
-
-    val Accent get() = _current.Accent
-    val AccentVariant get() = _current.AccentVariant
-    val AccentLight get() = _current.AccentLight
-
-    val Divider get() = _current.Divider
-
-    val ButtonActive get() = _current.ButtonActive
-    val ButtonPressed get() = _current.ButtonPressed
-    val ButtonDisabled get() = _current.ButtonDisabled
-    val ButtonDisabledText get() = _current.ButtonDisabledText
-
-    val Danger get() = _current.Danger
-    val DangerLight get() = _current.DangerLight
-    val Warning get() = _current.Warning
-    val WarningLight get() = _current.WarningLight
-
-    val ThinkingIndicator get() = _current.ThinkingIndicator
-    val ThinkingBg get() = _current.ThinkingBg
-
-    val CoordinateText get() = _current.CoordinateText
+val LocalThemeColors = staticCompositionLocalOf<ThemeColors> {
+    error("ThemeColors not provided. Wrap your UI in BadukNextTheme.")
 }
+
+@Composable
+fun BadukNextTheme(theme: GameTheme, content: @Composable () -> Unit) {
+    val colors = remember(theme) { ThemePresets.forTheme(theme) }
+    CompositionLocalProvider(LocalThemeColors provides colors) {
+        content()
+    }
+}
+
+@Composable
+fun themeColors(): ThemeColors = LocalThemeColors.current

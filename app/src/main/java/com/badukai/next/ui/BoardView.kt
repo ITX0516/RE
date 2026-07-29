@@ -42,7 +42,7 @@ fun GoBoard(
     val boardSize = board.size
     val density = LocalDensity.current
     val marginRatio = if (showCoordinates) MARGIN_RATIO_WITH_COORDS else MARGIN_RATIO
-    val colors = BadukNextColors
+    val colors = themeColors()
 
     BoxWithConstraints(
         modifier = modifier
@@ -70,12 +70,12 @@ fun GoBoard(
             val padding = sizePx * marginRatio
             val cellSize = if (boardSize > 1) (sizePx - 2f * padding) / (boardSize - 1).toFloat() else sizePx
 
-            drawGrid(boardSize, padding, cellSize)
-            drawStarPoints(boardSize, padding, cellSize)
-            drawStones(board, boardSize, padding, cellSize, lastMovePoint)
+            drawGrid(boardSize, padding, cellSize, colors)
+            drawStarPoints(boardSize, padding, cellSize, colors)
+            drawStones(board, boardSize, padding, cellSize, lastMovePoint, colors)
 
             if (showCoordinates) {
-                drawCoordinates(boardSize, padding, cellSize, sizePx)
+                drawCoordinates(boardSize, padding, cellSize, sizePx, colors)
             }
 
             // Draw pending placement dot (for confirm/double-tap modes)
@@ -83,12 +83,12 @@ fun GoBoard(
                 val px = padding + pendingDot.x * cellSize
                 val py = padding + pendingDot.y * cellSize
                 drawCircle(
-                    color = BadukNextColors.Accent.copy(alpha = 0.35f),
+                    color = colors.Accent.copy(alpha = 0.35f),
                     radius = cellSize * 0.22f,
                     center = Offset(px, py)
                 )
                 drawCircle(
-                    color = BadukNextColors.Accent.copy(alpha = 0.7f),
+                    color = colors.Accent.copy(alpha = 0.7f),
                     radius = cellSize * 0.22f,
                     center = Offset(px, py),
                     style = Stroke(width = 2f)
@@ -101,7 +101,8 @@ fun GoBoard(
 private fun DrawScope.drawGrid(
     boardSize: Int,
     padding: Float,
-    cellSize: Float
+    cellSize: Float,
+    colors: ThemeColors
 ) {
     val lineWidth = if (boardSize >= 13) 1.8f else 1.4f
     val outerLineWidth = lineWidth * 1.4f
@@ -112,14 +113,14 @@ private fun DrawScope.drawGrid(
         val w = if (isEdge) outerLineWidth else lineWidth
 
         drawLine(
-            color = BadukNextColors.BoardLine,
+            color = colors.BoardLine,
             start = Offset(pos, padding),
             end = Offset(pos, padding + (boardSize - 1) * cellSize),
             strokeWidth = w
         )
 
         drawLine(
-            color = BadukNextColors.BoardLine,
+            color = colors.BoardLine,
             start = Offset(padding, pos),
             end = Offset(padding + (boardSize - 1) * cellSize, pos),
             strokeWidth = w
@@ -130,7 +131,8 @@ private fun DrawScope.drawGrid(
 private fun DrawScope.drawStarPoints(
     boardSize: Int,
     padding: Float,
-    cellSize: Float
+    cellSize: Float,
+    colors: ThemeColors
 ) {
     val starPoints = getStarPoints(boardSize)
     val radius = cellSize * 0.13f
@@ -140,7 +142,7 @@ private fun DrawScope.drawStarPoints(
         val y = padding + point.y * cellSize
 
         drawCircle(
-            color = BadukNextColors.StarPoint,
+            color = colors.StarPoint,
             radius = radius,
             center = Offset(x, y)
         )
@@ -172,9 +174,10 @@ private fun DrawScope.drawCoordinates(
     boardSize: Int,
     padding: Float,
     cellSize: Float,
-    sizePx: Float
+    sizePx: Float,
+    colors: ThemeColors
 ) {
-    val coordColor = BadukNextColors.CoordinateText
+    val coordColor = colors.CoordinateText
     val argb = coordColor.toArgb()
 
     val paint = Paint().apply {
@@ -223,7 +226,8 @@ private fun DrawScope.drawStones(
     boardSize: Int,
     padding: Float,
     cellSize: Float,
-    lastMovePoint: Point?
+    lastMovePoint: Point?,
+    colors: ThemeColors
 ) {
     val stoneRadius = cellSize * 0.46f
     val shadowRadius = stoneRadius * 1.05f
@@ -249,8 +253,8 @@ private fun DrawScope.drawStones(
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                BadukNextColors.BlackStoneHighlight,
-                                BadukNextColors.BlackStone
+                                colors.BlackStoneHighlight,
+                                colors.BlackStone
                             ),
                             center = Offset(
                                 centerX - stoneRadius * 0.28f,
@@ -269,14 +273,14 @@ private fun DrawScope.drawStones(
                         center = Offset(centerX, centerY + shadowOffsetY)
                     )
                     drawCircle(
-                        color = BadukNextColors.WhiteStone,
+                        color = colors.WhiteStone,
                         radius = stoneRadius,
                         center = center
                     )
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                BadukNextColors.WhiteStoneHighlight,
+                                colors.WhiteStoneHighlight,
                                 Color.Transparent
                             ),
                             center = Offset(
@@ -289,7 +293,7 @@ private fun DrawScope.drawStones(
                         center = center
                     )
                     drawCircle(
-                        color = BadukNextColors.WhiteStoneBorder,
+                        color = colors.WhiteStoneBorder,
                         radius = stoneRadius,
                         center = center,
                         style = Stroke(width = 0.8f)
@@ -300,9 +304,9 @@ private fun DrawScope.drawStones(
 
             if (isLastMove) {
                 val markerColor = if (intersection == Intersection.BLACK)
-                    BadukNextColors.LastMoveMarkerOnBlack
+                    colors.LastMoveMarkerOnBlack
                 else
-                    BadukNextColors.LastMoveMarkerOnWhite
+                    colors.LastMoveMarkerOnWhite
 
                 drawCircle(
                     color = markerColor,

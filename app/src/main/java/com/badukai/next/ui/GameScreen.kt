@@ -64,9 +64,7 @@ fun GameScreen(
     onSetPlaceSound: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    LaunchedEffect(state.currentTheme) { BadukNextColors.setTheme(state.currentTheme) }
-
-    val colors = BadukNextColors
+    val colors = themeColors()
 
     Column(
         modifier = modifier.fillMaxSize().background(colors.Background),
@@ -214,7 +212,7 @@ fun GameScreen(
 // ── New Footer composables ──
 @Composable
 private fun GameInfoChip(label: String, captured: Int, isCurrent: Boolean) {
-    val colors = BadukNextColors
+    val colors = themeColors()
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(modifier = Modifier.size(14.dp).clip(CircleShape).background(
             if (label == "Black") colors.BlackStone else colors.WhiteStone
@@ -232,7 +230,7 @@ private fun PlayFooter(
     onTerritoryEstimate: () -> Unit, onUndo: () -> Unit,
     onConfirmMove: () -> Unit, onCancelMove: () -> Unit
 ) {
-    val colors = BadukNextColors
+    val colors = themeColors()
     Box(modifier = Modifier.height(36.dp).fillMaxWidth().padding(horizontal = 10.dp)) {
         if (state.placementMode == PlacementMode.CONFIRM && state.confirmMoveQueued != null) {
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -258,7 +256,7 @@ private fun PlayFooter(
 
 @Composable
 private fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> Unit) {
-    val colors = BadukNextColors
+    val colors = themeColors()
     var selectedTab by remember { mutableStateOf(AnalysisTab.MOVE_TREE) }
 
     Row(
@@ -303,7 +301,7 @@ private fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> U
 
 @Composable
 private fun MoveTreeContent(state: GameState) {
-    val colors = BadukNextColors
+    val colors = themeColors()
     if (state.analysisMoves.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No moves recorded", color = colors.TextSecondary, fontSize = 11.sp)
@@ -334,7 +332,7 @@ private fun MoveTreeContent(state: GameState) {
 
 @Composable
 private fun ChartPlaceholder() {
-    val colors = BadukNextColors
+    val colors = themeColors()
     val lineColor = colors.Divider
     Canvas(modifier = Modifier.fillMaxSize().padding(6.dp)) {
         val w = size.width; val h = size.height; val pad = 25f
@@ -349,7 +347,7 @@ private fun ChartPlaceholder() {
 
 @Composable
 private fun CandidatesPlaceholder() {
-    val colors = BadukNextColors
+    val colors = themeColors()
     Column(Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Text("Top candidate moves", color = colors.TextSecondary, fontSize = 10.sp)
         Spacer(Modifier.height(4.dp))
@@ -366,7 +364,7 @@ private fun CaptureChip(
     captured: Int,
     isCurrentPlayer: Boolean
 ) {
-    val colors = BadukNextColors
+    val colors = themeColors()
     val bg = if (isCurrentPlayer) colors.AccentLight else colors.Surface
     val border = if (isCurrentPlayer) colors.Accent else colors.Divider
 
@@ -416,7 +414,7 @@ private fun PlayButton(
     enabled: Boolean = true,
     isDanger: Boolean = false
 ) {
-    val colors = BadukNextColors
+    val colors = themeColors()
     val bg = when {
         !enabled -> colors.ButtonDisabled
         isDanger -> colors.Danger
@@ -445,7 +443,7 @@ private fun NewGameDialog(
     onDismiss: () -> Unit,
     onStartGame: (StoneColor, Int) -> Unit
 ) {
-    val colors = BadukNextColors
+    val colors = themeColors()
     var selectedColor by remember { mutableStateOf(StoneColor.BLACK) }
     var selectedSize by remember { mutableIntStateOf(19) }
 
@@ -495,7 +493,7 @@ private fun NewGameDialog(
 
 @Composable
 private fun ColorOption(color: StoneColor, label: String, selected: Boolean, onClick: () -> Unit) {
-    val colors = BadukNextColors
+    val colors = themeColors()
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
@@ -517,7 +515,7 @@ private fun ColorOption(color: StoneColor, label: String, selected: Boolean, onC
 
 @Composable
 private fun SizeOption(size: Int, selected: Boolean, onClick: () -> Unit) {
-    val colors = BadukNextColors
+    val colors = themeColors()
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
@@ -537,7 +535,7 @@ private fun ModelSelectorDialog(
     onDismiss: () -> Unit,
     onSelectModel: (KataGoEngine.Model) -> Unit
 ) {
-    val colors = BadukNextColors
+    val colors = themeColors()
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(16.dp), color = colors.Surface, shadowElevation = 6.dp) {
             Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -556,7 +554,7 @@ private fun ModelSelectorDialog(
 
 @Composable
 private fun ModelOption(model: KataGoEngine.Model, selected: Boolean, onClick: () -> Unit) {
-    val colors = BadukNextColors
+    val colors = themeColors()
     Box(
         modifier = Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
@@ -590,7 +588,7 @@ private fun SettingsDialog(
     onSetPlacementMode: (PlacementMode) -> Unit,
     onSetPlaceSound: (Int) -> Unit
 ) {
-    val colors = BadukNextColors
+    val colors = themeColors()
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(16.dp), color = colors.Surface, shadowElevation = 6.dp) {
             Column(modifier = Modifier.padding(20.dp)) {
@@ -672,7 +670,7 @@ private fun CollapsibleSection(
     defaultExpanded: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val colors = BadukNextColors
+    val colors = themeColors()
     var expanded by remember { mutableStateOf(defaultExpanded) }
 
     Column {
@@ -699,7 +697,7 @@ private fun CollapsibleSection(
 
 @Composable
 private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onToggle: () -> Unit) {
-    val colors = BadukNextColors
+    val colors = themeColors()
     Row(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(onClick = onToggle).padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -717,7 +715,7 @@ private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onToggl
 
 @Composable
 private fun SettingsRadioOption(label: String, selected: Boolean, onClick: () -> Unit) {
-    val colors = BadukNextColors
+    val colors = themeColors()
     Box(
         modifier = Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
@@ -736,7 +734,7 @@ private fun SettingsRadioOption(label: String, selected: Boolean, onClick: () ->
 
 @Composable
 private fun TerritoryDialog(result: String, onDismiss: () -> Unit) {
-    val colors = BadukNextColors
+    val colors = themeColors()
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(16.dp), color = colors.Surface, shadowElevation = 6.dp) {
             Column(

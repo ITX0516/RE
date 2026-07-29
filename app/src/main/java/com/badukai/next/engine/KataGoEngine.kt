@@ -1,44 +1,27 @@
 package com.badukai.next.engine
 
 import android.content.Context
-import com.badukai.next.logging.AppLogger
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import java.io.*
-import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * KataGo engine wrapper that handles communication with the native KataGo process
- * via GTP (Go Text Protocol)
+ * Public engine facade — the type the rest of the app (GameViewModel, GameScreen,
+ * etc.) references as `KataGoEngine`.
+ *
+ * Why a real class instead of `typealias KataGoEngine = EngineManager`?
+ * Kotlin typealiases do not expose nested classifiers, so `KataGoEngine.Model`
+ * (used widely by GameViewModel/GameScreen) would not resolve through a
+ * typealias. Nested typealiases are not supported either, and nested classes
+ * are not inherited for qualification. The only way to keep
+ * `KataGoEngine.Model` / `KataGoEngine.Model.HUMAN` / `KataGoEngine.Model.entries`
+ * working without touching call sites is to keep `Model` nested inside a real
+ * `KataGoEngine` class.
+ *
+ * This facade therefore owns the public `Model` enum and delegates every engine
+ * operation to an internal [EngineManager] (which in turn drives [GtpClient] +
+ * [EngineBootstrap]). The public API is identical to the legacy KataGoEngine, so
+ * GameViewModel and GameScreen compile unchanged.
  */
-class KataGoEngine(private val context: Context) {
-
-    companion object {
-        private const val TAG = "KataGoEngine"
-        private const val BINARY_NAME = "libkatago.so"
-        private const val CONFIG_NAME = "gtp_static.cfg"
-    }
-
-    private val _isReady = MutableStateFlow(false)
-    val isReady: StateFlow<Boolean> = _isReady
-
-    private val _lastResponse = MutableStateFlow("")
-    val lastResponse: StateFlow<String> = _lastResponse
-
-    private var currentModel: String = ""
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-
-    private var process: Process? = null
-    private var writer: BufferedWriter? = null
-    private var reader: BufferedReader? = null
-    private var errorReader: BufferedReader? = null
-    private var readerJob: Job? = null
-    private var errorReaderJob: Job? = null
-    private val responseQueue = LinkedBlockingQueue<String>()
-    private val isRunning = AtomicBoolean(false)
+class KataGoEngine(context: Context) {
 
     enum class Model(val displayName: String, val fileName: String, val description: String) {
         HUMAN("Human", "10b.bin", "Approachable AI opponent, fast responses"),
@@ -46,440 +29,35 @@ class KataGoEngine(private val context: Context) {
         GODLIKE("Godlike", "28b.bin", "Ultimate strength, may be slower on some devices")
     }
 
-    suspend fun start(model: Model = Model.HUMAN): Boolean = withContext(Dispatchers.IO) {
-        if (isRunning.get()) {
-            AppLogger.w(TAG, "Engine already running")
-            return@withContext true
-        }
+    private val manager = EngineManager(context)
 
-        AppLogger.i(TAG, "=== PATCHED KATAGO ENGINE ===")
+    val isReady: StateFlow<Boolean> get() = manager.isReady
 
-        try {
-            val dataDataPath = "/data/data/${context.packageName}"
-            val filesDir = File(dataDataPath, "files")
-            val nativeLibDir = context.applicationInfo.nativeLibraryDir
+    suspend fun start(model: Model = Model.HUMAN): Boolean =
+        manager.start(model.fileName)
 
-            val hexagonDir = File(filesDir, "hexagon")
-            if (!hexagonDir.exists()) {
-                hexagonDir.mkdirs()
-                AppLogger.i(TAG, "Created hexagon directory: ${hexagonDir.absolutePath}")
-            }
+    fun stop() = manager.stop()
 
-            val binaryFile = File(filesDir, BINARY_NAME)
-            if (!binaryFile.exists() || shouldUpdateBinary(binaryFile)) {
-                copyAssetToFile(BINARY_NAME, binaryFile)
-                binaryFile.setExecutable(true)
-                AppLogger.i(TAG, "Installed patched KataGo binary")
-            }
+    suspend fun generateMove(color: String): String? =
+        manager.generateMove(color)
 
-            val configFile = File(filesDir, CONFIG_NAME)
-            if (!configFile.exists()) {
-                copyAssetToFile(CONFIG_NAME, configFile)
-                AppLogger.i(TAG, "Copied config file: ${configFile.absolutePath}")
-            }
+    suspend fun playMove(color: String, move: String): Boolean =
+        manager.playMove(color, move)
 
-            val appDir = File(filesDir, "app")
-            if (!appDir.exists()) appDir.mkdirs()
+    suspend fun setBoardSize(size: Int): Boolean =
+        manager.setBoardSize(size)
 
-            val modelFile = File(appDir, model.fileName)
-            if (!modelFile.exists()) {
-                copyAssetToFile("models/${model.fileName}", modelFile)
-            }
+    suspend fun clearBoard(): Boolean =
+        manager.clearBoard()
 
-            AppLogger.i(TAG, "Model: ${modelFile.absolutePath} (exists=${modelFile.exists()}, size=${modelFile.length()})")
-            AppLogger.i(TAG, "Config: ${configFile.absolutePath} (exists=${configFile.exists()})")
-            AppLogger.i(TAG, "Binary: ${binaryFile.absolutePath} (exists=${binaryFile.exists()})")
+    suspend fun setKomi(komi: Float): Boolean =
+        manager.setKomi(komi)
 
-            val command = listOf(
-                "/system/bin/linker64",
-                binaryFile.absolutePath,
-                "gtp",
-                "-model", modelFile.absolutePath,
-                "-config", configFile.absolutePath
-            )
-            AppLogger.i(TAG, "Command: ${command.joinToString(" ")}")
+    suspend fun undo(): Boolean =
+        manager.undo()
 
-            val builder = ProcessBuilder(command)
-            builder.directory(hexagonDir)
+    suspend fun getFinalScore(): String? =
+        manager.getFinalScore()
 
-            val env = builder.environment()
-            env["LD_LIBRARY_PATH"] = "$nativeLibDir:${hexagonDir.absolutePath}:/vendor/lib64:/system/vendor/lib64"
-            env["ADSP_LIBRARY_PATH"] = "$nativeLibDir;${hexagonDir.absolutePath};/system/lib/rfsa/adsp;/system/vendor/lib/rfsa/adsp;/dsp"
-            env["HOME"] = filesDir.absolutePath
-
-            AppLogger.i(TAG, "Environment:")
-            AppLogger.i(TAG, "  LD_LIBRARY_PATH=${env["LD_LIBRARY_PATH"]}")
-            AppLogger.i(TAG, "  ADSP_LIBRARY_PATH=${env["ADSP_LIBRARY_PATH"]}")
-            AppLogger.i(TAG, "  HOME=${env["HOME"]}")
-            AppLogger.i(TAG, "  Working dir=${hexagonDir.absolutePath}")
-
-            AppLogger.i(TAG, "Launching process...")
-            process = builder.start()
-
-            writer = BufferedWriter(OutputStreamWriter(process!!.outputStream))
-            reader = BufferedReader(InputStreamReader(process!!.inputStream))
-            errorReader = BufferedReader(InputStreamReader(process!!.errorStream))
-
-            delay(2000)
-
-            val alive = process?.isAlive ?: false
-            val exitCode = try { process?.exitValue() } catch (e: IllegalThreadStateException) { null }
-            AppLogger.i(TAG, "Process alive: $alive, exitCode: $exitCode")
-
-            if (!alive) {
-                val error = errorReader?.readText() ?: ""
-                val output = reader?.readText() ?: ""
-                AppLogger.e(TAG, "Process died immediately!")
-                AppLogger.e(TAG, "Stderr: $error")
-                AppLogger.e(TAG, "Stdout: $output")
-                return@withContext false
-            }
-
-            isRunning.set(true)
-            currentModel = model.fileName
-            _isReady.value = true
-            startReaderJob()
-            startErrorReaderJob()
-
-            AppLogger.i(TAG, "=== ENGINE STARTED SUCCESSFULLY ===")
-            return@withContext true
-
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to start engine", e)
-            return@withContext false
-        }
-    }
-
-    private fun copyHexagonSkeletons(hexagonDir: File) {
-        val hexagonFiles = listOf(
-            "libQnnHtpV68Skel.so",
-            "libQnnHtpV69Skel.so",
-            "libQnnHtpV73Skel.so",
-            "libQnnHtpV75Skel.so",
-            "libQnnHtpV79Skel.so",
-            "libQnnHtpV81Skel.so",
-            "libQnnDspV66Skel.so",
-            "libCalculator_skel.so"
-        )
-
-        for (fileName in hexagonFiles) {
-            try {
-                val destFile = File(hexagonDir, fileName)
-                if (!destFile.exists()) {
-                    context.assets.open("hexagon/$fileName").use { input ->
-                        FileOutputStream(destFile).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    AppLogger.i(TAG, "Copied hexagon skeleton: $fileName")
-                }
-            } catch (e: Exception) {
-                AppLogger.d(TAG, "Hexagon skeleton not available: $fileName")
-            }
-        }
-    }
-
-    private fun startReaderJob() {
-        readerJob = scope.launch {
-            try {
-                val buffer = StringBuilder()
-                AppLogger.i(TAG, "Reader job started, waiting for output...")
-
-                while (isActive && isRunning.get()) {
-                    val line = withContext(Dispatchers.IO) {
-                        try {
-                            reader?.readLine()
-                        } catch (e: IOException) {
-                            AppLogger.e(TAG, "IOException reading: ${e.message}")
-                            null
-                        }
-                    }
-
-                    if (line == null) {
-                        val alive = process?.isAlive
-                        val exit = try { process?.exitValue() } catch (e: Exception) { -999 }
-                        AppLogger.i(TAG, "KataGo stdout stream closed (alive=$alive, exit=$exit)")
-                        break
-                    }
-
-                    AppLogger.d(TAG, "KataGo stdout: $line")
-                    buffer.append(line).append("\n")
-
-                    if (line.isEmpty() && buffer.isNotEmpty()) {
-                        val response = buffer.toString()
-                        buffer.clear()
-                        responseQueue.offer(response)
-                        _lastResponse.value = response
-                    }
-                }
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Stdout reader job error", e)
-            }
-        }
-    }
-
-    private fun startErrorReaderJob() {
-        errorReaderJob = scope.launch {
-            try {
-                while (isActive && isRunning.get()) {
-                    val line = withContext(Dispatchers.IO) {
-                        try {
-                            errorReader?.readLine()
-                        } catch (e: IOException) {
-                            null
-                        }
-                    }
-
-                    if (line == null) {
-                        AppLogger.i(TAG, "KataGo stderr stream closed")
-                        break
-                    }
-
-                    AppLogger.e(TAG, "KataGo stderr: $line")
-                    AppLogger.w(TAG, "KataGo stderr: $line")
-                }
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Stderr reader job error", e)
-            }
-        }
-    }
-
-    fun stop() {
-        AppLogger.i(TAG, "Stopping KataGo...")
-
-        isRunning.set(false)
-        _isReady.value = false
-
-        try {
-            sendCommandSync("quit")
-        } catch (e: Exception) {
-        }
-
-        readerJob?.cancel()
-        readerJob = null
-
-        errorReaderJob?.cancel()
-        errorReaderJob = null
-
-        try {
-            writer?.close()
-        } catch (e: Exception) {}
-
-        try {
-            reader?.close()
-        } catch (e: Exception) {}
-
-        try {
-            errorReader?.close()
-        } catch (e: Exception) {}
-
-        process?.let { p ->
-            try {
-                if (!p.waitFor(1, TimeUnit.SECONDS)) {
-                    p.destroyForcibly()
-                }
-            } catch (e: Exception) {
-                p.destroyForcibly()
-            }
-        }
-
-        process = null
-        writer = null
-        reader = null
-        responseQueue.clear()
-
-        AppLogger.i(TAG, "KataGo stopped")
-    }
-
-    fun sendCommand(command: String): Boolean {
-        return sendCommandSync(command)
-    }
-
-    private fun sendCommandSync(command: String): Boolean {
-        if (!isRunning.get() && command != "quit") {
-            AppLogger.w(TAG, "Cannot send command, engine not running")
-            return false
-        }
-
-        return try {
-            AppLogger.d(TAG, "Sending: $command")
-            writer?.write(command)
-            writer?.newLine()
-            writer?.flush()
-            true
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error sending command: $command", e)
-            false
-        }
-    }
-
-    fun waitForResponse(timeoutMs: Int = 30000): String {
-        return try {
-            val response = responseQueue.poll(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
-            response ?: ""
-        } catch (e: InterruptedException) {
-            ""
-        }
-    }
-
-    suspend fun generateMove(color: String): String? = withContext(Dispatchers.IO) {
-        try {
-            responseQueue.clear()
-            sendCommand("genmove $color")
-            val response = waitForResponse(60000)
-            val move = parseGtpResponse(response)
-            AppLogger.i(TAG, "Generated move for $color: $move")
-            move
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error generating move", e)
-            null
-        }
-    }
-
-    suspend fun playMove(color: String, move: String): Boolean = withContext(Dispatchers.IO) {
-        try {
-            responseQueue.clear()
-            sendCommand("play $color $move")
-            val response = waitForResponse(5000)
-            response.startsWith("=")
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error playing move", e)
-            false
-        }
-    }
-
-    suspend fun setBoardSize(size: Int): Boolean = withContext(Dispatchers.IO) {
-        try {
-            responseQueue.clear()
-            sendCommand("boardsize $size")
-            val response = waitForResponse(5000)
-            response.startsWith("=")
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error setting board size", e)
-            false
-        }
-    }
-
-    suspend fun clearBoard(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            responseQueue.clear()
-            sendCommand("clear_board")
-            val response = waitForResponse(5000)
-            response.startsWith("=")
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error clearing board", e)
-            false
-        }
-    }
-
-    suspend fun setKomi(komi: Float): Boolean = withContext(Dispatchers.IO) {
-        try {
-            responseQueue.clear()
-            sendCommand("komi $komi")
-            val response = waitForResponse(5000)
-            response.startsWith("=")
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error setting komi", e)
-            false
-        }
-    }
-
-    suspend fun undo(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            responseQueue.clear()
-            sendCommand("undo")
-            val response = waitForResponse(5000)
-            response.startsWith("=")
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error undoing move", e)
-            false
-        }
-    }
-
-    suspend fun getFinalScore(): String? = withContext(Dispatchers.IO) {
-        try {
-            responseQueue.clear()
-            sendCommand("final_score")
-            val response = waitForResponse(10000)
-            parseGtpResponse(response)
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error getting final score", e)
-            null
-        }
-    }
-
-    private fun parseGtpResponse(response: String): String? {
-        val trimmed = response.trim()
-        return when {
-            trimmed.startsWith("= ") -> trimmed.substring(2).trim().split("\n").firstOrNull()?.trim()
-            trimmed.startsWith("=") -> trimmed.substring(1).trim().split("\n").firstOrNull()?.trim()
-            else -> null
-        }
-    }
-
-    private fun createConfigFile(file: File, logFilePath: String) {
-        val config = """
-            # KataGo Configuration for BadukNext
-
-            # Logging
-            logAllGTPCommunication = true
-            logSearchInfo = true
-            logToStderr = false
-            logFile = $logFilePath
-
-            # Backend settings - CPU only (most compatible)
-            useNNAPI = false
-
-            # Rules (Japanese-style)
-            koRule = SIMPLE
-            scoringRule = AREA
-            taxRule = NONE
-            multiStoneSuicideLegal = false
-            hasButton = false
-            whiteHandicapBonus = N
-
-            # Bot behavior
-            allowResignation = true
-            resignConsecTurns = 20
-            resignMinScoreDifference = 40
-            resignMinMovesPerBoardArea = 0.4
-
-            # Ponder disabled
-            ponderingEnabled = false
-            lagBuffer = 1.0
-
-            # Search settings
-            numSearchThreads = 2
-            nnCacheSizePowerOfTwo = 16
-            resignThreshold = -0.9
-
-            # Threading
-            nnMutexPoolSizePowerOfTwo = 14
-            numNNServerThreadsPerModel = 1
-        """.trimIndent()
-
-        file.writeText(config)
-        AppLogger.i(TAG, "Config file created: ${file.absolutePath}")
-        AppLogger.i(TAG, "Log file configured to: $logFilePath")
-    }
-
-    private fun shouldUpdateBinary(binaryFile: File): Boolean {
-        try {
-            val assetSize = context.assets.open(BINARY_NAME).use { it.available() }
-            return binaryFile.length() != assetSize.toLong()
-        } catch (e: Exception) {
-            return true
-        }
-    }
-
-    private fun copyAssetToFile(assetPath: String, outFile: File) {
-        context.assets.open(assetPath).use { input ->
-            FileOutputStream(outFile).use { output ->
-                input.copyTo(output)
-            }
-        }
-        AppLogger.i(TAG, "Asset copied: $assetPath -> ${outFile.absolutePath}")
-    }
-
-    fun isRunning(): Boolean = isRunning.get()
+    fun isRunning(): Boolean = manager.isRunning()
 }
