@@ -2,6 +2,7 @@ package com.badukai.next.ui
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
@@ -71,40 +72,106 @@ fun GameScreen(
         modifier = modifier.fillMaxSize().background(colors.Background),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // ── Mode Tabs ──
-        ModeTabs(
-            currentMode = state.gameMode,
-            onModeChange = onSetGameMode,
-            analysisEnabled = state.analysisMoves.isNotEmpty()
-        )
+        // 1. Top bar: New game / Mode toggle / Settings
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = colors.Surface,
+            shadowElevation = 0.5.dp
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                IconButton(onClick = onNewGame, modifier = Modifier.size(36.dp)) {
+                    Text("\u2795", fontSize = 16.sp)
+                }
 
-        if (state.gameMode == GameMode.ANALYZE) {
-            // ── Analysis Mode ──
-            AnalysisContent(
-                state = state,
-                onPrev = onAnalysisPrev,
-                onNext = onAnalysisNext,
-                onNewGame = onNewGame,
-                onModelSelect = onShowModelSelector,
-                onSettings = onShowSettings,
-                onBoardTap = onBoardTap
-            )
-        } else {
-            // ── Play Mode ──
-            PlayContent(
-                state = state,
-                onBoardTap = onBoardTap,
-                onPass = onPass,
-                onResign = onResign,
-                onTerritoryEstimate = onTerritoryEstimate,
-                onUndo = onUndo,
-                onNewGame = onNewGame,
-                onModelSelect = onShowModelSelector,
-                onSettings = onShowSettings,
-                onConfirmMove = onConfirmMove,
-                onCancelMove = onCancelMove
-            )
+                Row(
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(colors.SurfaceVariant),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    GameMode.entries.forEach { mode ->
+                        val selected = mode == state.gameMode
+                        Box(
+                            modifier = Modifier.weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (selected) colors.Accent else Color.Transparent)
+                                .clickable { onSetGameMode(mode) }
+                                .padding(horizontal = 20.dp, vertical = 7.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                mode.displayName,
+                                color = if (selected) colors.TextOnAccent else colors.TextSecondary,
+                                fontSize = 13.sp, fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                IconButton(onClick = onSettings, modifier = Modifier.size(36.dp)) {
+                    Text("\u2699", fontSize = 16.sp, color = colors.TextSecondary)
+                }
+            }
         }
+
+        // 2. Game info: captures + current player
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            GameInfoChip("Black", state.capturedByBlack, state.currentPlayer == StoneColor.BLACK)
+            Text(
+                "${state.boardSize}\u00D7${state.boardSize}",
+                color = colors.TextSecondary, fontSize = 12.sp,
+                modifier = Modifier.align(Alignment.CenterVertically)
+            )
+            GameInfoChip("White", state.capturedByWhite, state.currentPlayer == StoneColor.WHITE)
+        }
+
+        // 3. Win rate bar (simple capture ratio placeholder)
+        Box(
+            modifier = Modifier.fillMaxWidth().height(6.dp).padding(horizontal = 12.dp).clip(RoundedCornerShape(3.dp)).background(colors.Divider)
+        ) {
+            val total = state.capturedByBlack + state.capturedByWhite
+            if (total > 0) {
+                val ratio = state.capturedByBlack.toFloat() / total
+                Box(
+                    modifier = Modifier.fillMaxHeight().fillMaxWidth(ratio.coerceIn(0.05f, 0.95f))
+                        .clip(RoundedCornerShape(3.dp)).background(colors.Accent)
+                )
+            }
+        }
+
+        Spacer(Modifier.height(6.dp))
+
+        // 4. Board
+        Box(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                shape = RoundedCornerShape(6.dp), shadowElevation = 2.dp
+            ) {
+                GoBoard(
+                    board = state.board, lastMovePoint = state.lastMovePoint,
+                    onIntersectionTap = onBoardTap, enabled = state.isEngineReady && !state.isThinking,
+                    showCoordinates = state.showCoordinates,
+                    pendingDot = state.pendingTap
+                )
+            }
+        }
+
+        // 5. Bottom area
+        if (state.gameMode == GameMode.ANALYZE) {
+            AnalysisFooter(state, onAnalysisPrev, onAnalysisNext)
+        } else {
+            PlayFooter(state, onPass, onResign, onTerritoryEstimate, onUndo, onConfirmMove, onCancelMove)
+        }
+
+        Spacer(Modifier.height(6.dp))
     }
 
     // ── Dialogs ──
@@ -145,386 +212,94 @@ fun GameScreen(
 // Mode Tabs
 // ──────────────────────────────────────────────
 @Composable
-private fun ModeTabs(
-    currentMode: GameMode,
-    onModeChange: (GameMode) -> Unit,
-    analysisEnabled: Boolean
-) {
-    val colors = BadukNextColors
 
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = colors.Surface,
-        shadowElevation = 0.5.dp
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            GameMode.entries.forEach { mode ->
-                val enabled = mode != GameMode.ANALYZE || analysisEnabled
-                val selected = mode == currentMode
-                TabButton(
-                    text = mode.displayName,
-                    selected = selected,
-                    enabled = enabled,
-                    onClick = { if (enabled) onModeChange(mode) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
+// ── New Footer composables ──
+@Composable
+private fun GameInfoChip(label: String, captured: Int, isCurrent: Boolean) {
+    val colors = BadukNextColors
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(modifier = Modifier.size(14.dp).clip(CircleShape).background(
+            if (label == "Black") colors.BlackStone else colors.WhiteStone
+        ).then(
+            if (label == "White") Modifier.border(0.5.dp, colors.WhiteStoneBorder, CircleShape) else Modifier
+        ))
+        Spacer(Modifier.width(6.dp))
+        Text("\u00D7$captured", color = if (isCurrent) colors.Accent else colors.TextSecondary, fontSize = 13.sp, fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal)
     }
 }
 
 @Composable
-private fun TabButton(
-    text: String,
-    selected: Boolean,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+private fun PlayFooter(
+    state: GameState, onPass: () -> Unit, onResign: () -> Unit,
+    onTerritoryEstimate: () -> Unit, onUndo: () -> Unit,
+    onConfirmMove: () -> Unit, onCancelMove: () -> Unit
 ) {
     val colors = BadukNextColors
-    val bg = if (selected) colors.AccentLight else Color.Transparent
-    val txtColor = if (!enabled) colors.ButtonDisabledText
-        else if (selected) colors.Accent else colors.TextSecondary
-
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(bg)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 8.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(text = text, color = txtColor, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-// ──────────────────────────────────────────────
-// Play Content
-// ──────────────────────────────────────────────
-@Composable
-private fun PlayContent(
-    state: GameState,
-    onBoardTap: (Int, Int) -> Unit,
-    onPass: () -> Unit,
-    onResign: () -> Unit,
-    onTerritoryEstimate: () -> Unit,
-    onUndo: () -> Unit,
-    onNewGame: () -> Unit,
-    onModelSelect: () -> Unit,
-    onSettings: () -> Unit,
-    onConfirmMove: () -> Unit,
-    onCancelMove: () -> Unit
-) {
-    val colors = BadukNextColors
-
-    Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // ── Status Bar ──
-        PlayStatusBar(
-            state = state,
-            onNewGame = onNewGame,
-            onModelSelect = onModelSelect,
-            onSettings = onSettings
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // ── Board ──
-        Box(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentAlignment = Alignment.Center
-        ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth().aspectRatio(1f),
-                shape = RoundedCornerShape(6.dp),
-                shadowElevation = 2.dp
-            ) {
-                GoBoard(
-                    board = state.board,
-                    lastMovePoint = state.lastMovePoint,
-                    onIntersectionTap = onBoardTap,
-                    enabled = state.isPlayerTurn && !state.isThinking && state.isEngineReady,
-                    showCoordinates = state.showCoordinates,
-                    pendingDot = state.pendingTap
-                )
-            }
-        }
-
-        // ── Confirm/Cancel overlay for CONFIRM mode ──
-        Box(modifier = Modifier.height(42.dp).fillMaxWidth()) {
-            if (state.placementMode == PlacementMode.CONFIRM && state.confirmMoveQueued != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier.weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.Surface)
-                            .border(1.dp, colors.Divider, RoundedCornerShape(8.dp))
-                            .clickable(onClick = onCancelMove)
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("Cancel", color = colors.TextPrimary, fontWeight = FontWeight.Medium)
-                    }
-                    Box(
-                        modifier = Modifier.weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.Accent)
-                            .clickable(onClick = onConfirmMove)
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("Place Here", color = colors.TextOnAccent, fontWeight = FontWeight.SemiBold)
-                    }
+    Box(modifier = Modifier.height(36.dp).fillMaxWidth().padding(horizontal = 10.dp)) {
+        if (state.placementMode == PlacementMode.CONFIRM && state.confirmMoveQueued != null) {
+            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(colors.Surface).border(1.dp, colors.Divider, RoundedCornerShape(8.dp)).clickable(onClick = onCancelMove).padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                    Text("Cancel", color = colors.TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+                Box(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(colors.Accent).clickable(onClick = onConfirmMove).padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                    Text("Place Here", color = colors.TextOnAccent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // ── Captures ──
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            CaptureChip(
-                modifier = Modifier.weight(1f),
-                color = StoneColor.BLACK,
-                captured = state.capturedByBlack,
-                isCurrentPlayer = state.currentPlayer == StoneColor.BLACK
-            )
-            CaptureChip(
-                modifier = Modifier.weight(1f),
-                color = StoneColor.WHITE,
-                captured = state.capturedByWhite,
-                isCurrentPlayer = state.currentPlayer == StoneColor.WHITE
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // ── Action Buttons ──
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            PlayButton(
-                text = "Territory",
-                onClick = onTerritoryEstimate,
-                enabled = state.isEngineReady,
-                modifier = Modifier.weight(1f)
-            )
-            PlayButton(
-                text = "Undo",
-                onClick = onUndo,
-                enabled = state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() >= 2,
-                modifier = Modifier.weight(1f)
-            )
-            PlayButton(
-                text = "Pass",
-                onClick = onPass,
-                enabled = state.isPlayerTurn && !state.isThinking && state.isEngineReady,
-                modifier = Modifier.weight(1f)
-            )
-            PlayButton(
-                text = "Resign",
-                onClick = onResign,
-                enabled = state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() > 0,
-                isDanger = true,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
     }
-}
-
-@Composable
-private fun PlayStatusBar(
-    state: GameState,
-    onNewGame: () -> Unit,
-    onModelSelect: () -> Unit,
-    onSettings: () -> Unit
-) {
-    val colors = BadukNextColors
-
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // Left: New Game
-        IconButton(
-            onClick = onNewGame,
-            modifier = Modifier.size(36.dp)
-        ) {
-            Text("\u2795", fontSize = 16.sp) // heavy plus
-        }
-
-        // Center: Status
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(
-                text = state.gameMessage.ifEmpty {
-                    if (state.isEngineReady) "Ready" else "Starting\u2026"
-                },
-                color = colors.TextPrimary,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center,
-                maxLines = 1
-            )
-            Text(
-                text = "${state.boardSize}\u00D7${state.boardSize}",
-                fontSize = 11.sp,
-                color = colors.TextSecondary
-            )
-        }
-
-        // Right: Model + Settings
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(
-                onClick = onModelSelect,
-                enabled = !state.isEngineStarting && !state.isThinking
-            ) {
-                Text(
-                    state.selectedModel.displayName,
-                    fontSize = 12.sp,
-                    color = colors.Accent,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-            IconButton(onClick = onSettings, modifier = Modifier.size(36.dp)) {
-                Text("\u2699", fontSize = 16.sp, color = colors.TextSecondary)
-            }
-        }
+        PlayButton("Territory", onTerritoryEstimate, state.isEngineReady, Modifier.weight(1f))
+        PlayButton("Undo", onUndo, state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() >= 2, Modifier.weight(1f))
+        PlayButton("Pass", onPass, state.isPlayerTurn && !state.isThinking && state.isEngineReady, Modifier.weight(1f))
+        PlayButton("Resign", onResign, state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() > 0, Modifier.weight(1f), isDanger = true)
     }
 }
 
-// ──────────────────────────────────────────────
-// Analysis Content
-// ──────────────────────────────────────────────
 @Composable
-private fun AnalysisContent(
-    state: GameState,
-    onPrev: () -> Unit,
-    onNext: () -> Unit,
-    onNewGame: () -> Unit,
-    onModelSelect: () -> Unit,
-    onSettings: () -> Unit,
-    onBoardTap: (Int, Int) -> Unit
-) {
+private fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> Unit) {
     val colors = BadukNextColors
     var selectedTab by remember { mutableStateOf(AnalysisTab.MOVE_TREE) }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    Row(
+        modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // ── Analysis Header ──
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            IconButton(onClick = onNewGame, modifier = Modifier.size(36.dp)) {
-                Text("\u2795", fontSize = 16.sp)
-            }
-            Text("Analysis", color = colors.TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            IconButton(onClick = onSettings, modifier = Modifier.size(36.dp)) {
-                Text("\u2699", fontSize = 16.sp, color = colors.TextSecondary)
+        IconButton(onClick = onPrev, enabled = state.analysisMoveIndex > 0, modifier = Modifier.size(32.dp)) {
+            Text("\u25C0", fontSize = 16.sp, color = if (state.analysisMoveIndex > 0) colors.TextPrimary else colors.ButtonDisabledText)
+        }
+        Text("${state.analysisMoveIndex}/${state.analysisMoves.size}", modifier = Modifier.width(70.dp), textAlign = TextAlign.Center, color = colors.TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        IconButton(onClick = onNext, enabled = state.analysisMoveIndex < state.analysisMoves.size, modifier = Modifier.size(32.dp)) {
+            Text("\u25B6", fontSize = 16.sp, color = if (state.analysisMoveIndex < state.analysisMoves.size) colors.TextPrimary else colors.ButtonDisabledText)
+        }
+    }
+
+    Spacer(Modifier.height(4.dp))
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp).clip(RoundedCornerShape(8.dp)).background(colors.SurfaceVariant),
+        horizontalArrangement = Arrangement.SpaceEvenly
+    ) {
+        AnalysisTab.entries.forEach { tab ->
+            val isSelected = tab == selectedTab
+            Box(Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSelected) colors.Accent else Color.Transparent).clickable { selectedTab = tab }.padding(vertical = 5.dp), contentAlignment = Alignment.Center) {
+                Text(tab.label, color = if (isSelected) colors.TextOnAccent else colors.TextSecondary, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
             }
         }
+    }
 
-        // ── Board ──
-        Box(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentAlignment = Alignment.Center
-        ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth().aspectRatio(1f),
-                shape = RoundedCornerShape(6.dp), shadowElevation = 2.dp
-            ) {
-                GoBoard(
-                    board = state.board, lastMovePoint = state.lastMovePoint,
-                    onIntersectionTap = onBoardTap, enabled = true,
-                    showCoordinates = state.showCoordinates
-                )
-            }
+    Spacer(Modifier.height(4.dp))
+
+    Box(
+        modifier = Modifier.fillMaxWidth().height(80.dp).padding(horizontal = 10.dp).clip(RoundedCornerShape(8.dp)).background(colors.Surface)
+    ) {
+        when (selectedTab) {
+            AnalysisTab.MOVE_TREE -> MoveTreeContent(state)
+            AnalysisTab.CHART -> ChartPlaceholder()
+            AnalysisTab.CANDIDATES -> CandidatesPlaceholder()
         }
-
-        Spacer(Modifier.height(4.dp))
-
-        // ── Navigation ──
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onPrev, enabled = state.analysisMoveIndex > 0, modifier = Modifier.size(36.dp)) {
-                Text("\u25C0", fontSize = 18.sp, color = if (state.analysisMoveIndex > 0) colors.TextPrimary else colors.ButtonDisabledText)
-            }
-            Text(
-                "${state.analysisMoveIndex}/${state.analysisMoves.size}",
-                modifier = Modifier.width(80.dp),
-                textAlign = TextAlign.Center,
-                color = colors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium
-            )
-            IconButton(onClick = onNext, enabled = state.analysisMoveIndex < state.analysisMoves.size, modifier = Modifier.size(36.dp)) {
-                Text("\u25B6", fontSize = 18.sp, color = if (state.analysisMoveIndex < state.analysisMoves.size) colors.TextPrimary else colors.ButtonDisabledText)
-            }
-        }
-
-        Spacer(Modifier.height(4.dp))
-
-        // ── Sub-tabs ──
-        Row(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(colors.SurfaceVariant),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            AnalysisTab.entries.forEach { tab ->
-                val isSelected = tab == selectedTab
-                Box(
-                    modifier = Modifier.weight(1f)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (isSelected) colors.Accent else Color.Transparent)
-                        .clickable { selectedTab = tab }
-                        .padding(vertical = 6.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        tab.label,
-                        color = if (isSelected) colors.TextOnAccent else colors.TextSecondary,
-                        fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(6.dp))
-
-        // ── Tab Content ──
-        Box(
-            modifier = Modifier.fillMaxWidth().height(92.dp).clip(RoundedCornerShape(8.dp))
-                .background(colors.Surface)
-        ) {
-            when (selectedTab) {
-                AnalysisTab.MOVE_TREE -> MoveTreeContent(state)
-                AnalysisTab.CHART -> ChartPlaceholder()
-                AnalysisTab.CANDIDATES -> CandidatesPlaceholder()
-            }
-        }
-
-        Spacer(Modifier.height(6.dp))
     }
 }
 
@@ -533,15 +308,12 @@ private fun MoveTreeContent(state: GameState) {
     val colors = BadukNextColors
     if (state.analysisMoves.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No moves recorded", color = colors.TextSecondary, fontSize = 12.sp)
+            Text("No moves recorded", color = colors.TextSecondary, fontSize = 11.sp)
         }
         return
     }
-
     val scrollState = rememberScrollState()
-    Box(
-        modifier = Modifier.fillMaxSize().horizontalScroll(scrollState).padding(6.dp)
-    ) {
+    Box(Modifier.fillMaxSize().horizontalScroll(scrollState).padding(6.dp)) {
         Column {
             val perRow = 10
             val rows = (state.analysisMoves.size + perRow - 1) / perRow
@@ -551,20 +323,8 @@ private fun MoveTreeContent(state: GameState) {
                     val end = minOf(start + perRow, state.analysisMoves.size)
                     for (idx in start until end) {
                         val isSelected = idx == state.analysisMoveIndex - 1
-                        val moveNum = idx + 1
-                        Box(
-                            modifier = Modifier.size(26.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isSelected) colors.Accent else colors.SurfaceVariant)
-                                .padding(2.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                "$moveNum",
-                                fontSize = 10.sp,
-                                color = if (isSelected) colors.TextOnAccent else colors.TextSecondary,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
+                        Box(Modifier.size(22.dp).clip(RoundedCornerShape(3.dp)).background(if (isSelected) colors.Accent else colors.SurfaceVariant).padding(1.dp), contentAlignment = Alignment.Center) {
+                            Text("${idx + 1}", fontSize = 9.sp, color = if (isSelected) colors.TextOnAccent else colors.TextSecondary, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
                         }
                     }
                 }
@@ -578,44 +338,26 @@ private fun MoveTreeContent(state: GameState) {
 private fun ChartPlaceholder() {
     val colors = BadukNextColors
     val lineColor = colors.Divider
-    val textColor = colors.TextSecondary
-
-    Canvas(modifier = Modifier.fillMaxSize().padding(8.dp)) {
-        val w = size.width
-        val h = size.height
-        val padding = 30f
-        val chartW = w - padding * 2
-        val chartH = h - padding * 2
-
-        // Grid lines (4 horizontal)
-        for (i in 0..4) {
-            val y = padding + chartH * (1f - i / 4f)
-            drawLine(lineColor, start = androidx.compose.ui.geometry.Offset(padding, y), end = androidx.compose.ui.geometry.Offset(w - padding, y), strokeWidth = 0.5f)
-        }
-        // Axis lines
-        drawLine(lineColor, start = androidx.compose.ui.geometry.Offset(padding, padding), end = androidx.compose.ui.geometry.Offset(padding, h - padding), strokeWidth = 1f)
-        drawLine(lineColor, start = androidx.compose.ui.geometry.Offset(padding, h - padding), end = androidx.compose.ui.geometry.Offset(w - padding, h - padding), strokeWidth = 1f)
+    Canvas(modifier = Modifier.fillMaxSize().padding(6.dp)) {
+        val w = size.width; val h = size.height; val pad = 25f
+        for (i in 0..4) { val y = pad + (h - 2 * pad) * (1f - i / 4f); drawLine(lineColor, start = Offset(pad, y), end = Offset(w - pad, y), strokeWidth = 0.5f) }
+        drawLine(lineColor, start = Offset(pad, pad), end = Offset(pad, h - pad), strokeWidth = 1f)
+        drawLine(lineColor, start = Offset(pad, h - pad), end = Offset(w - pad, h - pad), strokeWidth = 1f)
     }
-
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("Analysis data required", color = colors.TextSecondary, fontSize = 12.sp)
+        Text("Analysis required", color = colors.TextSecondary, fontSize = 11.sp)
     }
 }
 
 @Composable
 private fun CandidatesPlaceholder() {
     val colors = BadukNextColors
-    Column(
-        modifier = Modifier.fillMaxSize().padding(10.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("Top candidate moves", color = colors.TextSecondary, fontSize = 11.sp)
-        Spacer(Modifier.height(6.dp))
-        Text("No AI analysis yet", color = colors.ButtonDisabledText, fontSize = 12.sp)
+    Column(Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("Top candidate moves", color = colors.TextSecondary, fontSize = 10.sp)
+        Spacer(Modifier.height(4.dp))
+        Text("No AI analysis yet", color = colors.ButtonDisabledText, fontSize = 11.sp)
     }
 }
-
 // ──────────────────────────────────────────────
 // Capture Chip
 // ──────────────────────────────────────────────
