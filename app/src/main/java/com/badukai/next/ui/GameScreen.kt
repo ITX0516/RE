@@ -155,7 +155,16 @@ fun GameScreen(
             ) {
                 GoBoard(
                     board = state.board, lastMovePoint = state.lastMovePoint,
-                    onIntersectionTap = onBoardTap, enabled = state.isEngineReady && !state.isThinking,
+                    onIntersectionTap = onBoardTap,
+                    enabled = when (state.gameMode) {
+                        // Analysis mode: free placement always works, no engine needed.
+                        GameMode.ANALYZE -> true
+                        // Play mode: only block when the AI is currently thinking so the
+                        // user can't race ahead of the board state. An unstarted / failed
+                        // engine still lets the player place stones locally — the engine
+                        // simply won't reply (and that's surfaced via gameMessage already).
+                        GameMode.PLAY -> !state.isThinking
+                    },
                     showCoordinates = state.showCoordinates,
                     pendingDot = state.pendingTap
                 )

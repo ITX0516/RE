@@ -47,17 +47,42 @@ class EngineManager(private val context: Context) {
             AppLogger.e(TAG, "Failed to release engine assets", e)
             return@withContext false
         }
-        if (!released.ready) {
-            AppLogger.e(TAG, "Engine assets not ready")
+        if (!released.binaryReady) {
+            AppLogger.e(TAG, "Engine binary or config missing (binaryReady=false). " +
+                "binary=${released.binaryFile.exists()} " +
+                "config=${released.configFile.exists()} " +
+                "model=${released.modelFile.exists()}")
             return@withContext false
         }
+        if (!released.modelFile.exists()) {
+            // Weight file was not bundled with the APK — that's the expected UX:
+            // the user picks their own .bin/.gz from on-device storage. Don't
+            // abort startup; surface a clear message so the UI can prompt.
+            AppLogger.w(TAG, "Model file ${released.modelFile.name} not bundled — " +
+                "user must provide one before the engine can generate moves.")
+        }
 
-        val args = listOf(
-            released.binaryFile.absolutePath,
-            "gtp",
-            "-model", released.modelFile.absolutePath,
-            "-config", released.configFile.absolutePath
-        )
+        val args: List<String> = if (released.modelFile.exists()) {
+            listOf(
+                released.binaryFile.absolutePath,
+                "gtp",
+                "-model", released.modelFile.absolutePath,
+                "-config", released.configFile.absolutePath
+            )
+        } else {
+            // User hasn't picked a weight file yet. Launch the engine in plain
+            // "gtp" mode without a model so it can still respond to protocol
+            // probes (list_commands, protocol_version, known_command, etc.) and
+            // stay alive. play / genmove / clear_board / boardsize / komi will
+            // be accepted as no-ops or errors until the user re-starts with a
+            // real model via selectModel().
+            AppLogger.w(TAG, "Launching engine WITHOUT model — AI moves disabled.")
+            listOf(
+                released.binaryFile.absolutePath,
+                "gtp",
+                "-config", released.configFile.absolutePath
+            )
+        }
         AppLogger.i(TAG, "Command: /system/bin/linker64 ${args.joinToString(" ")}")
 
         val env = mapOf(

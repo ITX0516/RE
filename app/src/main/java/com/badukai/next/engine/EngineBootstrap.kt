@@ -9,12 +9,16 @@ import java.io.FileOutputStream
  * Result of releasing the native engine assets to the app's private storage.
  *
  * @param binaryFile  Released KataGo executable (libkatago.so), marked executable.
- * @param configFile  Released gtp_static.cfg.
- * @param modelFile   Released network model file under filesDir/app.
+ * @param configFile  Released gtp_static.cfg / default_gtp.cfg.
+ * @param modelFile   Released network model file under filesDir/app (may not yet exist
+ *                    when the user supplies the weight file at runtime instead of
+ *                    bundling it in assets — that's fine, KataGo only needs the path).
  * @param hexagonDir  Hexagon working directory (used as the process working dir).
  * @param filesDir    App filesDir used for HOME.
  * @param nativeLibDir Application nativeLibraryDir, used in library path env vars.
- * @param ready       True when binary, config and model all exist on disk.
+ * @param binaryReady True when [binaryFile] and [configFile] exist on disk. The
+ *                    engine binary itself is always sufficient to launch; the model
+ *                    path is passed separately and can be swapped / chosen later.
  */
 data class ReleaseResult(
     val binaryFile: File,
@@ -23,7 +27,7 @@ data class ReleaseResult(
     val hexagonDir: File,
     val filesDir: File,
     val nativeLibDir: String,
-    val ready: Boolean
+    val binaryReady: Boolean
 )
 
 /**
@@ -94,7 +98,10 @@ class EngineBootstrap(private val context: Context) {
         AppLogger.i(TAG, "Config: ${configFile.absolutePath} (exists=${configFile.exists()})")
         AppLogger.i(TAG, "Binary: ${binaryFile.absolutePath} (exists=${binaryFile.exists()})")
 
-        val ready = binaryFile.exists() && configFile.exists() && modelFile.exists()
+        // Binary + config alone are required to launch the engine. The model file
+        // is passed as a CLI path and may be provided later by the user (picker),
+        // so we do NOT require it to already exist here.
+        val binaryReady = binaryFile.exists() && configFile.exists()
         return ReleaseResult(
             binaryFile = binaryFile,
             configFile = configFile,
@@ -102,7 +109,7 @@ class EngineBootstrap(private val context: Context) {
             hexagonDir = hexagonDir,
             filesDir = filesDir,
             nativeLibDir = nativeLibDir,
-            ready = ready
+            binaryReady = binaryReady
         )
     }
 
