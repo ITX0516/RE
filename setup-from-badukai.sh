@@ -2,18 +2,18 @@
 #
 # setup-from-badukai.sh
 #
-# Copies ONLY the minimal binary assets that BadukNext actually needs to run
-# the bundled KataGo engine:
-#   - engine binary          (assets/engine/libkatago.so or assets/libkatago.so
-#                            or jniLibs/arm64-v8a/libkatago.so)
-#   - default GTP config     (assets/engine/default_gtp.cfg or assets/gtp_static.cfg)
-#   - libc++_shared.so       (assets/engine/libc++_shared.so or jniLibs)
-#   - optional model weights under assets/models/ (user can still pick their own)
+# Copies all binary assets (the KataGo engine, its jniLibs dependencies, and the
+# neural network models) directly from a local clone of the upstream "badukai"
+# Android app repository (philippmerz/badukai). After running this script, the
+# project layout matches badukai 1:1 under app/src/main/assets and
+# app/src/main/jniLibs, and you can build the APK with ./gradlew assembleDebug.
 #
-# Everything else that the upstream badukai repo bundles under jniLibs (SNPE,
-# QNN, OpenCV, SDL2, TFLite, Python, etc.) is explicitly excluded. Those libs
-# are not used by the BadukNext app at runtime and would otherwise bloat the
-# APK from ~6 MB to ~80+ MB.
+# IMPORTANT: every file that the upstream badukai app ships under
+# jniLibs/arm64-v8a is copied verbatim. Do NOT strip or whitelist individual
+# libraries here — even if they appear to be unused at the Java layer, the
+# bundled KataGo engine may dlopen them lazily (SNPE, QNN, OpenCV, imgToSgf,
+# SDL2, TFLite, etc.), and removing any of them will break AI move generation,
+# engine startup, or other runtime features on real devices.
 #
 # Usage:
 #   ./setup-from-badukai.sh /absolute/path/to/your/badukai-checkout
@@ -47,122 +47,61 @@ fi
 SRC_APP="$BADUKAI_DIR/app/src/main"
 DST_APP="$HERE/app/src/main"
 
-copy_file_if_exists() {
+require_file() {
+    local f="$1"
+    if [ ! -e "$f" ]; then
+        echo "Required file missing in badukai checkout: $f" >&2
+        echo "Is $BADUKAI_DIR really a philippmerz/badukai clone?" >&2
+        exit 1
+    fi
+}
+
+copy_file() {
     local s="$1" d="$2"
+    mkdir -p "$(dirname "$d")"
     if [ -e "$s" ]; then
-        mkdir -p "$(dirname "$d")"
         cp -f "$s" "$d"
         echo "  OK  $s  ->  $d"
-        return 0
+    else
+        echo "  -   $s not present (skipped)"
     fi
-    return 1
 }
 
-# Copy engine binary: try several candidate locations the upstream repo may use.
-copy_engine_binary() {
-    local dest="$1"
-    mkdir -p "$(dirname "$dest")"
-    # Try the BadukAI repo conventions first.
-    for cand in \
-        "$SRC_APP/assets/engine/katago" \
-        "$SRC_APP/assets/engine/libkatago.so" \
-        "$SRC_APP/assets/libkatago.so" \
-        "$SRC_APP/jniLibs/arm64-v8a/libkatago.so"; do
-        if [ -e "$cand" ]; then
-            cp -f "$cand" "$dest"
-            echo "  OK  $cand  ->  $dest"
-            return 0
-        fi
-    done
-    echo "  MISSING engine binary (looked under $SRC_APP assets/jniLibs)" >&2
-    return 1
-}
-
-# Copy default GTP config.
-copy_gtp_config() {
-    local dest="$1"
-    mkdir -p "$(dirname "$dest")"
-    for cand in \
-        "$SRC_APP/assets/engine/default_gtp.cfg" \
-        "$SRC_APP/assets/gtp_static.cfg" \
-        "$SRC_APP/assets/engine/gtp_static.cfg"; do
-        if [ -e "$cand" ]; then
-            cp -f "$cand" "$dest"
-            echo "  OK  $cand  ->  $dest"
-            return 0
-        fi
-    done
-    echo "  MISSING gtp config (looked under $SRC_APP assets)" >&2
-    return 1
-}
-
-# Copy libc++_shared.so next to the engine (or as jniLib if present upstream).
-copy_libcxx() {
-    local dest_assets="$1"
-    local dest_jnilibs="$2"
-    for cand in \
-        "$SRC_APP/assets/engine/libc++_shared.so" \
-        "$SRC_APP/assets/libc++_shared.so" \
-        "$SRC_APP/jniLibs/arm64-v8a/libc++_shared.so"; do
-        if [ -e "$cand" ]; then
-            # Put it next to the engine binary in assets (EngineBootstrap looks
-            # for it there first). Also keep a copy in jniLibs so that the
-            # Android dynamic linker can still find it via System.loadLibrary.
-            mkdir -p "$(dirname "$dest_assets")"
-            cp -f "$cand" "$dest_assets"
-            mkdir -p "$dest_jnilibs"
-            cp -f "$cand" "$dest_jnilibs/libc++_shared.so"
-            echo "  OK  $cand  ->  $dest_assets (+ jniLibs copy)"
-            return 0
-        fi
-    done
-    echo "  SKIP  libc++_shared.so not provided upstream (using NDK STL instead)"
-    return 0
-}
-
-# Optional model weights bundled with upstream. Users can always pick their own
-# weight file at runtime, so we only copy lightweight defaults (if any) and
-# deliberately skip huge (>200MB) net files.
-copy_default_models() {
-    local src="$SRC_APP/assets/models"
-    local dst="$DST_APP/assets/models"
-    if [ ! -d "$src" ]; then
-        echo "  SKIP  $src (no bundled models)"
-        return 0
+copy_dir() {
+    local s="$1" d="$2"
+    if [ -d "$s" ]; then
+        mkdir -p "$d"
+        find "$s" -maxdepth 1 -type f -exec cp -f {} "$d/" \;
+        echo "  OK  $s/*  ->  $d/"
+    else
+        echo "  -   $s not present (skipped)"
     fi
-    mkdir -p "$dst"
-    local copied=0 skipped=0
-    while IFS= read -r -d '' f; do
-        local sz_mb
-        sz_mb=$(du -m "$f" | cut -f1)
-        if [ "$sz_mb" -le 80 ]; then
-            cp -f "$f" "$dst/"
-            copied=$((copied + 1))
-        else
-            skipped=$((skipped + 1))
-        fi
-    done < <(find "$src" -maxdepth 1 -type f -print0)
-    echo "  OK  $src/*  ->  $dst/ (copied=$copied, skipped=$skipped large files)"
 }
 
 echo ""
-echo "==> Syncing minimal KataGo engine assets from $SRC_APP"
-echo ""
-echo "NOTE: SNPE / QNN / OpenCV / SDL2 / TFLite / Python libs under jniLibs are"
-echo "      deliberately NOT copied -- BadukNext does not use them at runtime."
-echo ""
+echo "==> Copying assets from $SRC_APP"
+require_file "$SRC_APP/assets/libkatago.so"
+require_file "$SRC_APP/assets/gtp_static.cfg"
 
-copy_engine_binary "$DST_APP/assets/engine/libkatago.so" || true
-copy_gtp_config    "$DST_APP/assets/engine/default_gtp.cfg" || true
-copy_libcxx        "$DST_APP/assets/engine/libc++_shared.so" "$DST_APP/jniLibs/arm64-v8a"
-copy_default_models
+copy_file "$SRC_APP/assets/libkatago.so"    "$DST_APP/assets/libkatago.so"
+copy_file "$SRC_APP/assets/gtp_static.cfg"  "$DST_APP/assets/gtp_static.cfg"
+copy_dir  "$SRC_APP/assets/models"          "$DST_APP/assets/models"
+
+echo ""
+echo "==> Copying jniLibs/arm64-v8a from $SRC_APP (ENTIRE directory — no filtering)"
+echo "    NOTE: libSNPE, libQnn*, libopencv_*, libSDL2*, libtensorflowlite.so,"
+echo "          libimgToSgf.so, libcalculator.so, libpython3.7m.so, libmain.so,"
+echo "          libkatago* variants, libffi/libhidapi, etc. are ALL required."
+echo "          KataGo dlopens many of them at runtime; removing any single one"
+echo "          can silently break AI move generation or crash the process."
+copy_dir "$SRC_APP/jniLibs/arm64-v8a"       "$DST_APP/jniLibs/arm64-v8a"
 
 echo ""
 echo "==> Summary"
-echo "assets/engine/libkatago.so:      $(ls -lh "$DST_APP/assets/engine/libkatago.so"      2>/dev/null | awk '{print $5}' || echo MISSING)"
-echo "assets/engine/default_gtp.cfg:   $(ls -lh "$DST_APP/assets/engine/default_gtp.cfg"   2>/dev/null | awk '{print $5}' || echo MISSING)"
-echo "assets/engine/libc++_shared.so:  $(ls -lh "$DST_APP/assets/engine/libc++_shared.so"  2>/dev/null | awk '{print $5}' || echo MISSING)"
-echo "assets/models:                   $(find "$DST_APP/assets/models" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ') files"
-echo "jniLibs/arm64-v8a:              $(find "$DST_APP/jniLibs/arm64-v8a" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ') .so files (should only be libc++_shared.so if any)"
+echo "assets/libkatago.so:  $(ls -lh "$DST_APP/assets/libkatago.so"    2>/dev/null | awk '{print $5}' || echo MISSING)"
+echo "assets/gtp_static.cfg: $(ls -lh "$DST_APP/assets/gtp_static.cfg" 2>/dev/null | awk '{print $5}' || echo MISSING)"
+echo "assets/models:         $(find "$DST_APP/assets/models" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ') files"
+echo "jniLibs/arm64-v8a:    $(find "$DST_APP/jniLibs/arm64-v8a"   -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ') .so files"
+
 echo ""
 echo "Done. Now run:  ./gradlew assembleDebug"

@@ -47,8 +47,11 @@ class EngineBootstrap(private val context: Context) {
         private const val BINARY_NAME = "libkatago.so"
         private const val CONFIG_NAME = "gtp_static.cfg"
         private const val ALTERNATE_CONFIG_NAME = "default_gtp.cfg"
-        // Asset subdirectories tried in order (newer, tidier layout first).
-        private val ASSET_PREFIXES = listOf("engine/", "")
+        // Try bundled paths in this order. The standard badukai layout puts
+        // libkatago.so + gtp_static.cfg directly at assets/ root; some builds
+        // put them under assets/engine/ instead. We also fall back to anything
+        // the user supplied in assets/models/.
+        private val ASSET_PREFIXES = listOf("", "engine/")
     }
 
     /**

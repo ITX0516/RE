@@ -54,35 +54,34 @@ class EngineManager(private val context: Context) {
                 "model=${released.modelFile.exists()}")
             return@withContext false
         }
+        // KataGo GTP mode REQUIRES a model file. Without one it will either
+        // refuse to start or fail every genmove with "NN not loaded". We must
+        // NOT launch without -model; instead, return false so GameViewModel
+        // can surface a clear "choose a weight file" message and restart()
+        // the engine after selectModel().
         if (!released.modelFile.exists()) {
-            // Weight file was not bundled with the APK — that's the expected UX:
-            // the user picks their own .bin/.gz from on-device storage. Don't
-            // abort startup; surface a clear message so the UI can prompt.
-            AppLogger.w(TAG, "Model file ${released.modelFile.name} not bundled — " +
-                "user must provide one before the engine can generate moves.")
+            AppLogger.e(TAG, "Model file ${released.modelFile.absolutePath} missing. " +
+                "Engine NOT started — user must choose a weight file first.")
+            return@withContext false
         }
 
-        val args: List<String> = if (released.modelFile.exists()) {
-            listOf(
-                released.binaryFile.absolutePath,
-                "gtp",
-                "-model", released.modelFile.absolutePath,
-                "-config", released.configFile.absolutePath
-            )
-        } else {
-            // User hasn't picked a weight file yet. Launch the engine in plain
-            // "gtp" mode without a model so it can still respond to protocol
-            // probes (list_commands, protocol_version, known_command, etc.) and
-            // stay alive. play / genmove / clear_board / boardsize / komi will
-            // be accepted as no-ops or errors until the user re-starts with a
-            // real model via selectModel().
-            AppLogger.w(TAG, "Launching engine WITHOUT model — AI moves disabled.")
-            listOf(
-                released.binaryFile.absolutePath,
-                "gtp",
-                "-config", released.configFile.absolutePath
-            )
+        val executable = released.binaryFile.absolutePath
+        check(executable.isNotBlank() && released.binaryFile.canExecute()) {
+            "Engine binary not executable: $executable"
         }
+        check(released.configFile.exists()) {
+            "Config missing: ${released.configFile}"
+        }
+        check(released.modelFile.exists()) {
+            "Model missing: ${released.modelFile}"
+        }
+
+        val args = listOf(
+            released.binaryFile.absolutePath,
+            "gtp",
+            "-model", released.modelFile.absolutePath,
+            "-config", released.configFile.absolutePath
+        )
         AppLogger.i(TAG, "Command: /system/bin/linker64 ${args.joinToString(" ")}")
 
         val env = mapOf(

@@ -256,10 +256,22 @@ private fun PlayFooter(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        PlayButton("Territory", onTerritoryEstimate, Modifier.weight(1f), state.isEngineReady)
-        PlayButton("Undo", onUndo, Modifier.weight(1f), state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() >= 2)
-        PlayButton("Pass", onPass, Modifier.weight(1f), state.isPlayerTurn && !state.isThinking && state.isEngineReady)
-        PlayButton("Resign", onResign, Modifier.weight(1f), state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() > 0, isDanger = true)
+        // Territory button: estimate from engine when ready; otherwise still
+        // show capture counts so the button is never dead / greyed out.
+        PlayButton("Territory", onTerritoryEstimate, Modifier.weight(1f),
+            enabled = true)
+        // Undo: allow undo of local moves even without an engine — the gate
+        // for "need 2+ plies to undo (one pair)" lives in GameViewModel.undo().
+        PlayButton("Undo", onUndo, Modifier.weight(1f),
+            enabled = !state.isThinking && state.board.getMoveCount() >= 2)
+        // Pass: players can always pass regardless of engine state; the
+        // ViewModel will skip requestAiMove() when the engine isn't ready.
+        PlayButton("Pass", onPass, Modifier.weight(1f),
+            enabled = state.isPlayerTurn && !state.isThinking)
+        // Resign: allow at any point after move 1, engine-independent.
+        PlayButton("Resign", onResign, Modifier.weight(1f),
+            enabled = state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() > 0,
+            isDanger = true)
     }
 }
 
