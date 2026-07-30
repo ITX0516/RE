@@ -52,6 +52,7 @@ fun GameScreen(
     onShowSettings: () -> Unit,
     onDismissSettings: () -> Unit,
     onDismissTerritory: () -> Unit,
+    onForceEndGame: () -> Unit,
     onToggleCoordinates: () -> Unit,
     onToggleSound: () -> Unit,
     onSetTheme: (GameTheme) -> Unit,
@@ -110,8 +111,13 @@ fun GameScreen(
                     }
                 }
 
-                IconButton(onClick = onShowSettings, modifier = Modifier.size(36.dp)) {
-                    Text("\u2699", fontSize = 16.sp, color = colors.TextSecondary)
+                Box(
+                    modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp))
+                        .background(colors.SurfaceVariant)
+                        .clickable(onClick = onShowSettings),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("\u2699\uFE0E", fontSize = 16.sp, color = colors.TextPrimary)
                 }
             }
         }
@@ -130,18 +136,30 @@ fun GameScreen(
             GameInfoChip("White", state.capturedByWhite, state.currentPlayer == StoneColor.WHITE)
         }
 
-        // 3. Win rate bar (simple capture ratio placeholder)
+        // 3. Win rate bar (real data from kata-analyze)
+        val wr = if (state.winrate > 0f) state.winrate else 0.5f
         Box(
-            modifier = Modifier.fillMaxWidth().height(6.dp).padding(horizontal = 12.dp).clip(RoundedCornerShape(3.dp)).background(colors.Divider)
+            modifier = Modifier.fillMaxWidth().height(8.dp).padding(horizontal = 12.dp).clip(RoundedCornerShape(4.dp)).background(colors.Divider)
         ) {
-            val total = state.capturedByBlack + state.capturedByWhite
-            if (total > 0) {
-                val ratio = state.capturedByBlack.toFloat() / total
-                Box(
-                    modifier = Modifier.fillMaxHeight().fillMaxWidth(ratio.coerceIn(0.05f, 0.95f))
-                        .clip(RoundedCornerShape(3.dp)).background(colors.Accent)
+            // White's winrate bar (flip for display: black on left)
+            val blackWR = 1f - wr
+            Box(
+                modifier = Modifier.fillMaxHeight().fillMaxWidth(blackWR.coerceIn(0f, 1f))
+                    .clip(RoundedCornerShape(4.dp)).background(colors.BlackStone)
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("B ${"%.1f".format(blackWR * 100)}%", color = colors.TextSecondary, fontSize = 10.sp)
+            if (wr > 0f) {
+                Text(
+                    "${if (state.scoreLead >= 0) "B+" else "W+"}${"%.1f".format(kotlin.math.abs(state.scoreLead))}",
+                    color = colors.TextPrimary, fontSize = 10.sp, fontWeight = FontWeight.Medium
                 )
             }
+            Text("W ${"%.1f".format(wr * 100)}%", color = colors.TextSecondary, fontSize = 10.sp)
         }
 
         Spacer(Modifier.height(6.dp))
@@ -203,7 +221,8 @@ fun GameScreen(
     if (state.showTerritoryDialog) {
         TerritoryDialog(
             result = state.territoryResult,
-            onDismiss = onDismissTerritory
+            onDismiss = onDismissTerritory,
+            onForceEndGame = onForceEndGame
         )
     }
 }
@@ -735,7 +754,7 @@ private fun SettingsRadioOption(label: String, selected: Boolean, onClick: () ->
 }
 
 @Composable
-private fun TerritoryDialog(result: String, onDismiss: () -> Unit) {
+private fun TerritoryDialog(result: String, onDismiss: () -> Unit, onForceEndGame: () -> Unit) {
     val colors = BadukNextColors
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(16.dp), color = colors.Surface, shadowElevation = 6.dp) {
@@ -747,6 +766,16 @@ private fun TerritoryDialog(result: String, onDismiss: () -> Unit) {
                 Spacer(Modifier.height(14.dp))
                 Text(result, color = colors.TextPrimary, fontSize = 14.sp)
                 Spacer(Modifier.height(18.dp))
+                Box(
+                    modifier = Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp)).background(colors.Danger)
+                        .clickable(onClick = onForceEndGame)
+                        .padding(vertical = 11.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Force End Game", color = colors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.height(8.dp))
                 Box(
                     modifier = Modifier.fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp)).background(colors.Accent)

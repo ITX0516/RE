@@ -1,6 +1,7 @@
 package com.badukai.next.game
 
 import android.content.Context
+import com.badukai.next.analysis.AnalyzeResult
 import com.badukai.next.analysis.GameRecorder
 import com.badukai.next.analysis.RecordedMove
 import com.badukai.next.audio.StoneSoundPlayer
@@ -56,7 +57,10 @@ data class GameState(
     val confirmMoveQueued: Point? = null,
     val placeSoundIndex: Int = 0,
     val showTerritoryDialog: Boolean = false,
-    val territoryResult: String = ""
+    val territoryResult: String = "",
+    val winrate: Float = 0f,
+    val scoreLead: Float = 0f,
+    val ownership: List<Float>? = null
 )
 
 class GameViewModel : ViewModel() {
@@ -232,11 +236,40 @@ class GameViewModel : ViewModel() {
             gameMessage = if (isPlayerTurn) "Your turn" else "AI thinking..."
         )
 
+        requestAnalysis()
         viewModelScope.launch {
             engine?.playMove(color.toGtp(), point.toGtp(currentState.boardSize))
             if (!isPlayerTurn && !board.isGameOver) {
                 requestAiMove()
             }
+        }
+    }
+
+    private fun requestAnalysis() {
+        viewModelScope.launch {
+            val result = engine?.analyzePosition(300)
+            if (result != null) {
+                _state.value = _state.value.copy(
+                    winrate = result.winrate.toFloat(),
+                    scoreLead = result.scoreLead.toFloat(),
+                    ownership = result.ownership?.map { it.toFloat() }
+                )
+            }
+        }
+    }
+
+    fun forceEndGame() {
+        viewModelScope.launch {
+            val s = _state.value
+            // Play both pass on engine
+            engine?.playMove("black", "pass")
+            engine?.playMove("white", "pass")
+            val score = engine?.getFinalScore()
+            _state.value = _state.value.copy(
+                isPlayerTurn = false,
+                gameMessage = score?.let { "Game over. $it" } ?: "Game over",
+                territoryResult = score ?: "No result"
+            )
         }
     }
 
@@ -369,8 +402,26 @@ class GameViewModel : ViewModel() {
                 val score = engine?.getFinalScore()
                 _state.value = _state.value.copy(territoryResult = score ?: "No result")
             } else {
-                val msg = "Black captured: ${s.capturedByBlack}\nWhite captured: ${s.capturedByWhite}"
-                _state.value = _state.value.copy(territoryResult = msg)
+                // Use latest analysis if available
+                if (s.winrate > 0) {
+                    val wr = "%.1f".format(s.winrate * 100)
+                    val lead = "%.1f".format(s.scoreLead)
+                    _state.value = _state.value.copy(
+                        territoryResult = "Win rate: B ${100 - s.winrate * 100:.1f}% / W ${wr}%\nScore: ${if (s.scoreLead >= 0) "B+" else "W+"}${kotlin.math.abs(s.scoreLead).let { "%.1f".format(it) }}"
+                    )
+                } else {
+                    // No analysis yet, request it
+                    val result = engine?.analyzePosition(500)
+                    if (result != null) {
+                        _state.value = _state.value.copy(
+                            winrate = result.winrate.toFloat(),
+                            scoreLead = result.scoreLead.toFloat(),
+                            territoryResult = "Win rate: B ${"%.1f".format((1 - result.winrate) * 100)}% / W ${"%.1f".format(result.winrate * 100)}%\nScore: ${if (result.scoreLead >= 0) "B+" else "W+"}${"%.1f".format(kotlin.math.abs(result.scoreLead))}"
+                        )
+                    } else {
+                        _state.value = _state.value.copy(territoryResult = "kata-analyze not available\nBlack captured: ${s.capturedByBlack}\nWhite captured: ${s.capturedByWhite}")
+                    }
+                }
             }
         }
     }

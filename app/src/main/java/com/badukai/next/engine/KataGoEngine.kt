@@ -5,6 +5,10 @@ import com.badukai.next.logging.AppLogger
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import com.badukai.next.analysis.AnalyzeResult
+import com.badukai.next.analysis.CandidateMove
+import org.json.JSONObject
+import org.json.JSONArray
 import java.io.*
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
@@ -332,6 +336,50 @@ class KataGoEngine(private val context: Context) {
             move
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error generating move", e)
+            null
+        }
+    }
+
+    /**
+     * Request KataGo analysis for current position.
+     * Sends kata-analyze, parses JSON response for winrate, scoreLead, candidates, ownership.
+     */
+    suspend fun analyzePosition(maxVisits: Int = 300): AnalyzeResult? = withContext(Dispatchers.IO) {
+        try {
+            responseQueue.clear()
+            sendCommand("kata-analyze {maxVisits $maxVisits} {ownership true}")
+            val raw = waitForResponse(30000)
+            val gtp = parseGtpResponse(raw) ?: return@withContext null
+            val json = JSONObject(gtp)
+
+            val rootInfo = json.optJSONObject("rootInfo")
+            val winrate = rootInfo?.optDouble("winrate", 0.5) ?: 0.5
+            val scoreLead = rootInfo?.optDouble("scoreLead", 0.0) ?: 0.0
+
+            val movesJson = json.optJSONArray("moves")
+            val candidates = mutableListOf<CandidateMove>()
+            if (movesJson != null) {
+                for (i in 0 until minOf(movesJson.length(), 10)) {
+                    val m = movesJson.getJSONObject(i)
+                    candidates.add(CandidateMove(
+                        move = m.optString("move", null),
+                        winrate = m.optDouble("winrate", 0.5),
+                        scoreLead = m.optDouble("scoreLead", 0.0),
+                        visits = m.optInt("visits", 0),
+                        order = i
+                    ))
+                }
+            }
+
+            val ownershipJson = json.optJSONArray("ownership")
+            val ownership = if (ownershipJson != null) {
+                (0 until ownershipJson.length()).map { ownershipJson.optDouble(it, 0.0) }
+            } else null
+
+            AppLogger.i(TAG, "Analysis: winrate=$winrate scoreLead=$scoreLead candidates=${candidates.size}")
+            AnalyzeResult(winrate, scoreLead, candidates, ownership)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "kata-analyze error", e)
             null
         }
     }

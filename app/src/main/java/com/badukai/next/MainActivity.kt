@@ -41,6 +41,7 @@ class MainActivity : ComponentActivity() {
                 onShowSettings = viewModel::showSettingsDialog,
                 onDismissSettings = viewModel::hideSettingsDialog,
                 onDismissTerritory = viewModel::hideTerritoryDialog,
+                onForceEndGame = viewModel::forceEndGame,
                 onToggleCoordinates = viewModel::toggleCoordinates,
                 onToggleSound = viewModel::toggleSound,
                 onSetTheme = viewModel::setTheme,
