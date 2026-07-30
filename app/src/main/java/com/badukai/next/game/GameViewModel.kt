@@ -280,31 +280,31 @@ class GameViewModel : ViewModel() {
     private fun requestAnalysis() {
         viewModelScope.launch {
             val result = engine?.analyzePosition(100) // lower visits for speed
-                val s = _state.value
-                val candidates = result.moves.take(10).map { cm ->
-                    val coord = if (cm.x >= 0 && cm.y >= 0) {
-                        val letters = "ABCDEFGHJKLMNOPQRST"
-                        "${letters[cm.x]}${s.boardSize - cm.y}"
-                    } else "pass"
-                    val wr = cm.winRate?.let { "%.1f%%".format(it * 100) } ?: "-"
-                    val sc = cm.scoreLead?.let { if (it >= 0) "+%.1f".format(it) else "%.1f".format(it) } ?: "-"
-                    "$coord  $wr  $sc"
-                }
-                val topPts = result.moves.take(3).mapNotNull { cm ->
-                    if (cm.x >= 0 && cm.y >= 0) Pair(cm.x, cm.y) else null
-                }
-                val topWrs = result.moves.take(3).map { cm -> cm.winRate ?: 0.5f }
-                _state.value = s.copy(
-                    winrate = result.winrate.toFloat(),
-                    scoreLead = result.scoreLead.toFloat(),
-                    ownership = result.ownership?.map { it.toFloat() },
-                    candidateInfo = candidates,
-                    topCandidatePoints = topPts,
-                    topCandidateWinrates = topWrs,
-                    winrateHistory = s.winrateHistory + result.winrate.toFloat(),
-                    scoreLeadHistory = s.scoreLeadHistory + result.scoreLead.toFloat()
-                )
+            if (result == null) return@launch
+            val s = _state.value
+            val candidates = result.moves.take(10).map { cm ->
+                val coord = if (cm.x >= 0 && cm.y >= 0) {
+                    val letters = "ABCDEFGHJKLMNOPQRST"
+                    "${letters[cm.x]}${s.boardSize - cm.y}"
+                } else "pass"
+                val wr = cm.winRate?.let { "%.1f%%".format(it * 100) } ?: "-"
+                val sc = cm.scoreLead?.let { if (it >= 0) "+%.1f".format(it) else "%.1f".format(it) } ?: "-"
+                "$coord  $wr  $sc"
             }
+            val topPts = result.moves.take(3).mapNotNull { cm ->
+                if (cm.x >= 0 && cm.y >= 0) Pair(cm.x, cm.y) else null
+            }
+            val topWrs = result.moves.take(3).map { cm -> cm.winRate ?: 0.5f }
+            _state.value = s.copy(
+                winrate = result.winrate.toFloat(),
+                scoreLead = result.scoreLead.toFloat(),
+                ownership = result.ownership?.map { it.toFloat() },
+                candidateInfo = candidates,
+                topCandidatePoints = topPts,
+                topCandidateWinrates = topWrs,
+                winrateHistory = s.winrateHistory + result.winrate.toFloat(),
+                scoreLeadHistory = s.scoreLeadHistory + result.scoreLead.toFloat()
+            )
         }
     }
 
