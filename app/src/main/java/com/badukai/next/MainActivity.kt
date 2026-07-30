@@ -45,6 +45,7 @@ class MainActivity : ComponentActivity() {
                 onSetTheme = viewModel::setTheme,
                 onSetGameMode = viewModel::setGameMode,
                 onSetPlacementMode = viewModel::setPlacementMode,
+                onSetAnimation = viewModel::setStoneAnimation,
                 onAnalysisPrev = viewModel::analysisPrev,
                 onAnalysisNext = viewModel::analysisNext,
                 onConfirmMove = viewModel::confirmMove,

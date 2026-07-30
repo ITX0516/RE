@@ -2,6 +2,7 @@ package com.badukai.next.game
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.badukai.next.game.StoneAnimation
 import com.badukai.next.ui.GameTheme
 
 /**
@@ -34,4 +35,8 @@ class SettingsStore(context: Context) {
         get() = try { PlacementMode.valueOf(prefs.getString("placement_mode", PlacementMode.TAP.name) ?: PlacementMode.TAP.name) }
         catch (_: Exception) { PlacementMode.TAP }
         set(v) = prefs.edit().putString("placement_mode", v.name).apply()
+    var stoneAnimation: StoneAnimation
+        get() = try { StoneAnimation.valueOf(prefs.getString("stone_animation", StoneAnimation.FADE_IN.name) ?: StoneAnimation.FADE_IN.name) }
+        catch (_: Exception) { StoneAnimation.FADE_IN }
+        set(v) = prefs.edit().putString("stone_animation", v.name).apply()
 }

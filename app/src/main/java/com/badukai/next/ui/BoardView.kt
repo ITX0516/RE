@@ -2,6 +2,8 @@ package com.badukai.next.ui
 
 import android.graphics.Paint
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -38,7 +40,10 @@ fun GoBoard(
     showCoordinates: Boolean = false,
     pendingDot: Point? = null,
     showTerritory: Boolean = false,
-    ownership: List<Float>? = null
+    ownership: List<Float>? = null,
+    animationMode: Int = 0, // 0=fade, 1=drop, 2=none
+    candidateMarkers: List<Pair<Int,Int>> = emptyList(),
+    candidateWinrates: List<Float> = emptyList()
 ) {
     val boardSize = board.size
     val density = LocalDensity.current
@@ -46,12 +51,12 @@ fun GoBoard(
     val totalStones = board.getMoveCount()
     val colors = BadukNextColors
 
+    // ── Candidate markers ──
+    // Passed in from parent
+
     // Animation for newly placed stone
-    val stoneAnim = remember { Animatable(1f) }
-    LaunchedEffect(totalStones) {
-        stoneAnim.snapTo(0.6f)
-        stoneAnim.animateTo(1f, animationSpec = tween(200))
-    }
+    val stoneAnimScale = remember { Animatable(1f) }
+    val stoneAnimOffset = remember { Animatable(0f) }
 
     BoxWithConstraints(
         modifier = modifier
@@ -60,6 +65,28 @@ fun GoBoard(
     ) {
         val sizePx = with(density) {
             kotlin.math.min(maxWidth.toPx(), maxHeight.toPx())
+        }
+        val padding = sizePx * marginRatio
+        val cellSize = if (boardSize > 1) (sizePx - 2f * padding) / (boardSize - 1).toFloat() else sizePx
+
+        // Stone animation
+        LaunchedEffect(totalStones, animationMode) {
+            when (animationMode) {
+                0 -> { // Fade in (scale)
+                    stoneAnimOffset.snapTo(0f)
+                    stoneAnimScale.snapTo(0.6f)
+                    stoneAnimScale.animateTo(1f, animationSpec = tween(200))
+                }
+                1 -> { // Drop
+                    stoneAnimScale.snapTo(1f)
+                    stoneAnimOffset.snapTo(-cellSize * 0.5f)
+                    stoneAnimOffset.animateTo(0f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))
+                }
+                2 -> { // None
+                    stoneAnimScale.snapTo(1f)
+                    stoneAnimOffset.snapTo(0f)
+                }
+            }
         }
 
         Canvas(
@@ -87,7 +114,22 @@ fun GoBoard(
                 drawTerritory(boardSize, padding, cellSize, ownership)
             }
 
-            drawStones(board, boardSize, padding, cellSize, lastMovePoint, stoneAnim.value)
+            drawStones(board, boardSize, padding, cellSize, lastMovePoint, stoneAnimScale.value, stoneAnimOffset.value)
+
+            // Candidate markers (top 3 green-to-yellow circles)
+            candidateMarkers.forEachIndexed { idx, (cx, cy) ->
+                val wr = candidateWinrates.getOrElse(idx) { 0.5f }
+                val maxWr = candidateWinrates.maxOrNull() ?: 1f
+                val ratio = if (maxWr > 0f) (wr / maxWr).coerceIn(0f, 1f) else 0.5f
+                val r = (1f - ratio) * 0.4f // green=0, yellow=0.4
+                val g = 0.7f + ratio * 0.3f  // green 0.7->1.0
+                val b = 0f
+                val markerColor = Color(r, g, b, 0.45f)
+                val px = padding + cx * cellSize
+                val py = padding + cy * cellSize
+                drawCircle(markerColor, radius = cellSize * 0.35f, center = Offset(px, py))
+                drawCircle(markerColor.copy(alpha = 0.7f), radius = cellSize * 0.35f, center = Offset(px, py), style = Stroke(width = 2f))
+            }
 
             if (showCoordinates) {
                 drawCoordinates(boardSize, padding, cellSize, sizePx)
@@ -248,7 +290,8 @@ private fun DrawScope.drawStones(
     padding: Float,
     cellSize: Float,
     lastMovePoint: Point?,
-    animScale: Float
+    animScale: Float,
+    animOffset: Float = 0f
 ) {
     val stoneRadius = cellSize * 0.46f
     val shadowRadius = stoneRadius * 1.05f
@@ -269,10 +312,11 @@ private fun DrawScope.drawStones(
 
             val (ox, oy) = stoneOffset(x, y)
             val centerX = padding + x * cellSize + ox
-            val centerY = padding + y * cellSize + oy
+            val centerY = padding + y * cellSize + oy + dropOff
             val center = Offset(centerX, centerY)
             val isNewStone = lastMovePoint?.x == x && lastMovePoint.y == y
-            val scale = if (isNewStone) animScale else 1f
+            val scale = if (isNewStone && animScale < 1f) animScale else 1f
+            val dropOff = if (isNewStone) animOffset else 0f
             val r = stoneRadius * scale
 
             when (intersection) {

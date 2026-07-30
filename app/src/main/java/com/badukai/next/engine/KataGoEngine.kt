@@ -356,9 +356,17 @@ class KataGoEngine(private val context: Context) {
     suspend fun analyzePosition(maxVisits: Int = 300): AnalyzeResult? = withContext(Dispatchers.IO) {
         try {
             responseQueue.clear()
-            sendCommand("kata-analyze {maxVisits $maxVisits} {ownership true}")
+            sendCommand("kata-analyze ownership true maxVisits $maxVisits")
             val raw = waitForResponse(30000)
-            val gtp = parseGtpResponse(raw) ?: return@withContext null
+            if (raw.isBlank()) {
+                AppLogger.e(TAG, "kata-analyze: empty response after 30s timeout")
+                return@withContext null
+            }
+            val gtp = parseGtpResponse(raw)
+            if (gtp == null) {
+                AppLogger.e(TAG, "kata-analyze: parseGtpResponse failed, raw=[${raw.take(200)}]")
+                return@withContext null
+            }
             val json = JSONObject(gtp)
 
             val rootInfo = json.optJSONObject("rootInfo")

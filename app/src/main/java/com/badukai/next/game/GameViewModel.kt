@@ -23,6 +23,10 @@ enum class GameMode(val displayName: String) {
     ANALYZE("Analyze")
 }
 
+enum class StoneAnimation(val displayName: String) {
+    FADE_IN("Fade In"), DROP("Drop"), NONE("None")
+}
+
 enum class PlacementMode(val displayName: String) {
     TAP("Single Tap"),
     DOUBLE_TAP("Double Tap"),
@@ -59,11 +63,14 @@ data class GameState(
     val doubleTapActive: Boolean = false,
     val confirmMoveQueued: Point? = null,
     val placeSoundIndex: Int = 0,
+    val stoneAnimation: StoneAnimation = StoneAnimation.FADE_IN,
     val handicap: Int = 0,
     val komi: Float = 7.5f,
     val showTerritoryDialog: Boolean = false,
     val showTerritoryOverlay: Boolean = false,
     val territoryResult: String = "",
+    val topCandidatePoints: List<Pair<Int,Int>> = emptyList(),
+    val topCandidateWinrates: List<Float> = emptyList(),
     val winrate: Float = 0f,
     val scoreLead: Float = 0f,
     val ownership: List<Float>? = null,
@@ -101,7 +108,8 @@ class GameViewModel : ViewModel() {
                 soundEnabled = s.soundEnabled,
                 currentTheme = s.currentTheme,
                 placementMode = s.placementMode,
-                placeSoundIndex = s.placeSoundIndex
+                placeSoundIndex = s.placeSoundIndex,
+                stoneAnimation = s.stoneAnimation
             )
             soundPlayer?.setPlaceSound(s.placeSoundIndex)
             BadukNextColors.setTheme(s.currentTheme)
@@ -283,11 +291,17 @@ class GameViewModel : ViewModel() {
                     val sc = cm.scoreLead?.let { if (it >= 0) "+%.1f".format(it) else "%.1f".format(it) } ?: "-"
                     "$coord  $wr  $sc"
                 }
+                val topPts = result.moves.take(3).mapNotNull { cm ->
+                    if (cm.x >= 0 && cm.y >= 0) Pair(cm.x, cm.y) else null
+                }
+                val topWrs = result.moves.take(3).map { cm -> cm.winRate ?: 0.5f }
                 _state.value = s.copy(
                     winrate = result.winrate.toFloat(),
                     scoreLead = result.scoreLead.toFloat(),
                     ownership = result.ownership?.map { it.toFloat() },
                     candidateInfo = candidates,
+                    topCandidatePoints = topPts,
+                    topCandidateWinrates = topWrs,
                     winrateHistory = s.winrateHistory + result.winrate.toFloat(),
                     scoreLeadHistory = s.scoreLeadHistory + result.scoreLead.toFloat()
                 )
@@ -465,7 +479,7 @@ class GameViewModel : ViewModel() {
                             territoryResult = "Win rate: B $bw% / W $ww%\nScore: $side+$lead"
                         )
                     } else {
-                        _state.value = _state.value.copy(territoryResult = "kata-analyze not available\nBlack captured: ${s.capturedByBlack}\nWhite captured: ${s.capturedByWhite}")
+                        _state.value = _state.value.copy(territoryResult = "Analysis failed (check logs)\nBlack: ${s.capturedByBlack}  White: ${s.capturedByWhite}")
                     }
                 }
             }
@@ -489,6 +503,10 @@ class GameViewModel : ViewModel() {
         _state.value = _state.value.copy(placeSoundIndex = idx)
         soundPlayer?.setPlaceSound(idx)
         if (::settingsStore.isInitialized) settingsStore.placeSoundIndex = idx
+    }
+    fun setStoneAnimation(anim: StoneAnimation) {
+        _state.value = _state.value.copy(stoneAnimation = anim)
+        if (::settingsStore.isInitialized) settingsStore.stoneAnimation = anim
     }
     fun setPlacementMode(mode: PlacementMode) {
         _state.value = _state.value.copy(placementMode = mode, pendingTap = null, doubleTapActive = false, confirmMoveQueued = null)

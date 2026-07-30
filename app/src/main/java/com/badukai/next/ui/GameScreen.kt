@@ -30,6 +30,7 @@ import com.badukai.next.engine.KataGoEngine
 import com.badukai.next.game.GameMode
 import com.badukai.next.game.GameState
 import com.badukai.next.game.PlacementMode
+import com.badukai.next.game.StoneAnimation
 import com.badukai.next.game.StoneColor
 
 /**
@@ -62,6 +63,7 @@ fun GameScreen(
     onConfirmMove: () -> Unit,
     onCancelMove: () -> Unit,
     onSetPlaceSound: (Int) -> Unit,
+    onSetAnimation: (StoneAnimation) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LaunchedEffect(state.currentTheme) { BadukNextColors.setTheme(state.currentTheme) }
@@ -179,7 +181,10 @@ fun GameScreen(
                     showCoordinates = state.showCoordinates,
                     pendingDot = state.pendingTap,
                     showTerritory = state.showTerritoryOverlay,
-                    ownership = state.ownership
+                    ownership = state.ownership,
+                    animationMode = state.stoneAnimation.ordinal,
+                    candidateMarkers = state.topCandidatePoints,
+                    candidateWinrates = state.topCandidateWinrates
                 )
             }
         }
@@ -202,12 +207,11 @@ fun GameScreen(
             }
         }
 
-        // ── Bottom bar ──
-        if (state.gameMode == GameMode.ANALYZE) {
-            AnalysisFooter(state, onAnalysisPrev, onAnalysisNext)
-        } else {
-            PlayButtonRow(state, onNewGame, onPass, onResign, onTerritoryEstimate, onUndo)
-        }
+        // ── Play buttons (both modes) ──
+        PlayButtonRow(state, onNewGame, onPass, onResign, onTerritoryEstimate, onUndo)
+
+        // ── Analysis sub-tabs (both modes) ──
+        AnalysisFooter(state, onAnalysisPrev, onAnalysisNext)
     }
 
     // ── Dialogs ──
@@ -233,7 +237,9 @@ fun GameScreen(
             onToggleSound = onToggleSound,
             onSetTheme = onSetTheme,
             onSetPlacementMode = onSetPlacementMode,
-            onSetPlaceSound = onSetPlaceSound
+            onSetPlaceSound = onSetPlaceSound,
+            currentAnimation = state.stoneAnimation,
+            onSetAnimation = onSetAnimation
         )
     }
 }
@@ -692,12 +698,14 @@ private fun SettingsDialog(
     soundEnabled: Boolean,
     currentTheme: GameTheme,
     currentPlacementMode: PlacementMode,
+    currentAnimation: StoneAnimation,
     placeSoundIndex: Int,
     onDismiss: () -> Unit,
     onToggleCoordinates: () -> Unit,
     onToggleSound: () -> Unit,
     onSetTheme: (GameTheme) -> Unit,
     onSetPlacementMode: (PlacementMode) -> Unit,
+    onSetAnimation: (StoneAnimation) -> Unit,
     onSetPlaceSound: (Int) -> Unit
 ) {
     val colors = BadukNextColors
@@ -748,6 +756,17 @@ private fun SettingsDialog(
                             label = mode.displayName,
                             selected = mode == currentPlacementMode,
                             onClick = { onSetPlacementMode(mode) }
+                        )
+                        Spacer(Modifier.height(4.dp))
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text("Stone animation", fontSize = 12.sp, color = colors.TextSecondary)
+                    Spacer(Modifier.height(4.dp))
+                    StoneAnimation.entries.forEach { anim ->
+                        SettingsRadioOption(
+                            label = anim.displayName,
+                            selected = anim == currentAnimation,
+                            onClick = { onSetAnimation(anim) }
                         )
                         Spacer(Modifier.height(4.dp))
                     }
