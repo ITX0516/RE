@@ -89,7 +89,7 @@ fun GameScreen(
                 ) {
                     Text(
                         state.gameMessage.ifEmpty { "Ready" },
-                        color = colors.TextPrimary, fontSize = 12.sp,
+                        color = colors.TextPrimary, fontSize = 14.sp,
                         modifier = Modifier.weight(1f)
                     )
                     Row(
@@ -120,17 +120,26 @@ fun GameScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(12.dp).clip(CircleShape).background(colors.BlackStone))
                         Spacer(Modifier.width(4.dp))
-                        Text("${state.capturedByBlack}", color = colors.TextSecondary, fontSize = 11.sp)
+                        Text("${state.capturedByBlack}", color = colors.TextSecondary, fontSize = 13.sp)
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                        Text("${state.boardSize}\u00D7${state.boardSize}", color = colors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text("${state.boardSize}\u00D7${state.boardSize}", color = colors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("${state.capturedByWhite}", color = colors.TextSecondary, fontSize = 11.sp)
                         Spacer(Modifier.width(4.dp))
                         Box(Modifier.size(12.dp).clip(CircleShape).background(colors.WhiteStone).then(Modifier.border(0.5.dp, colors.WhiteStoneBorder, CircleShape)))
+                    }
+                    // Settings button — text, top-right
+                    Box(
+                        Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant)
+                            .clickable(onClick = onShowSettings)
+                            .padding(horizontal = 10.dp, vertical = 3.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Settings", color = colors.TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                     }
                 }
             }
@@ -149,11 +158,11 @@ fun GameScreen(
                 )
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("B ${"%.1f".format(blackWR * 100)}%", color = colors.TextSecondary, fontSize = 9.sp)
+                Text("B ${"%.1f".format(blackWR * 100)}%", color = colors.TextSecondary, fontSize = 11.sp)
                 if (wr > 0f) {
-                    Text("${if (state.scoreLead >= 0) "B+" else "W+"}${"%.1f".format(kotlin.math.abs(state.scoreLead))}", color = colors.TextPrimary, fontSize = 9.sp, fontWeight = FontWeight.Medium)
+                    Text("${if (state.scoreLead >= 0) "B+" else "W+"}${"%.1f".format(kotlin.math.abs(state.scoreLead))}", color = colors.TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                 }
-                Text("W ${"%.1f".format(wr * 100)}%", color = colors.TextSecondary, fontSize = 9.sp)
+                Text("W ${"%.1f".format(wr * 100)}%", color = colors.TextSecondary, fontSize = 11.sp)
             }
         }
 
@@ -247,8 +256,8 @@ private fun IconBtn(icon: String, label: String, onClick: () -> Unit, enabled: B
         modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = enabled, onClick = onClick).padding(horizontal = 6.dp, vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(icon, color = if (enabled) colors.TextPrimary else colors.ButtonDisabledText, fontSize = 18.sp)
-        Text(label, color = if (enabled) colors.TextSecondary else colors.ButtonDisabledText, fontSize = 9.sp)
+        Text(icon, color = if (enabled) colors.TextPrimary else colors.ButtonDisabledText, fontSize = 22.sp)
+        Text(label, color = if (enabled) colors.TextSecondary else colors.ButtonDisabledText, fontSize = 11.sp)
     }
 }
 
@@ -292,7 +301,7 @@ private fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> U
         when (selectedTab) {
             AnalysisTab.MOVE_TREE -> MoveTreeContent(state)
             AnalysisTab.CHART -> WinrateChartContent(state.winrateHistory, state.scoreLeadHistory)
-            AnalysisTab.CANDIDATES -> CandidatesPlaceholder()
+            AnalysisTab.CANDIDATES -> CandidatesPlaceholder(state.candidateInfo)
         }
     }
 }
@@ -409,12 +418,25 @@ private fun WinrateChartContent(winrateHistory: List<Float>, scoreLeadHistory: L
 }
 
 @Composable
-private fun CandidatesPlaceholder() {
+private fun CandidatesPlaceholder(candidateInfo: List<String>) {
     val colors = BadukNextColors
-    Column(Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("Top candidate moves", color = colors.TextSecondary, fontSize = 10.sp)
-        Spacer(Modifier.height(4.dp))
-        Text("No AI analysis yet", color = colors.ButtonDisabledText, fontSize = 11.sp)
+    if (candidateInfo.isEmpty()) {
+        Column(Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Top candidate moves", color = colors.TextSecondary, fontSize = 10.sp)
+            Spacer(Modifier.height(4.dp))
+            Text("No AI analysis yet", color = colors.ButtonDisabledText, fontSize = 11.sp)
+        }
+        return
+    }
+    Column(Modifier.fillMaxSize().padding(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text("Candidate moves", color = colors.TextSecondary, fontSize = 10.sp)
+        candidateInfo.forEachIndexed { i, info ->
+            val isBest = i == 0
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("#${i+1}", color = if (isBest) colors.Accent else colors.TextSecondary, fontSize = 10.sp, fontWeight = if (isBest) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.width(16.dp))
+                Text(info, color = if (isBest) colors.TextPrimary else colors.TextSecondary, fontSize = 10.sp, fontWeight = if (isBest) FontWeight.Medium else FontWeight.Normal)
+            }
+        }
     }
 }
 // ──────────────────────────────────────────────

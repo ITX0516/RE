@@ -65,7 +65,8 @@ data class GameState(
     val territoryResult: String = "",
     val winrate: Float = 0f,
     val scoreLead: Float = 0f,
-    val ownership: List<Float>? = null
+    val ownership: List<Float>? = null,
+    val candidateInfo: List<String> = emptyList()
 )
 
 class GameViewModel : ViewModel() {
@@ -272,10 +273,20 @@ class GameViewModel : ViewModel() {
             val result = engine?.analyzePosition(300)
             if (result != null) {
                 val s = _state.value
+                val candidates = result.moves.take(10).map { cm ->
+                    val coord = if (cm.x >= 0 && cm.y >= 0) {
+                        val letters = "ABCDEFGHJKLMNOPQRST"
+                        "${letters[cm.x]}${s.boardSize - cm.y}"
+                    } else "pass"
+                    val wr = cm.winRate?.let { "%.1f%%".format(it * 100) } ?: "-"
+                    val sc = cm.scoreLead?.let { if (it >= 0) "+%.1f".format(it) else "%.1f".format(it) } ?: "-"
+                    "$coord  $wr  $sc"
+                }
                 _state.value = s.copy(
                     winrate = result.winrate.toFloat(),
                     scoreLead = result.scoreLead.toFloat(),
                     ownership = result.ownership?.map { it.toFloat() },
+                    candidateInfo = candidates,
                     winrateHistory = s.winrateHistory + result.winrate.toFloat(),
                     scoreLeadHistory = s.scoreLeadHistory + result.scoreLead.toFloat()
                 )
@@ -548,9 +559,17 @@ class GameViewModel : ViewModel() {
         _state.value = _state.value.copy(winrateHistory = emptyList(), scoreLeadHistory = emptyList())
         recorder.reset()
 
-        // If AI has handicap (AI plays Black), player goes first as White
+        // Clamp handicap for non-standard boards
+        val maxHandicap = when (boardSize) { 19 -> 9; 13 -> 9; 9 -> 5; else -> 4 }
+        val realHandicap = handicap.coerceIn(0, maxHandicap)
+
+        // After handicap, White always plays first
         val aiColor = playerColor.opposite()
-        val isPlayerFirst = if (handicap > 0) aiColor == StoneColor.BLACK else playerColor == StoneColor.BLACK
+        val isPlayerFirst = if (realHandicap > 0) {
+            playerColor == StoneColor.WHITE  // White plays first after handicap
+        } else {
+            playerColor == StoneColor.BLACK  // Normal: Black first
+        }
 
         val newBoard = GoBoard(boardSize)
         _state.value = s.copy(
@@ -558,7 +577,7 @@ class GameViewModel : ViewModel() {
             currentPlayer = StoneColor.BLACK, playerColor = playerColor,
             isPlayerTurn = isPlayerFirst, lastMovePoint = null,
             capturedByBlack = 0, capturedByWhite = 0,
-            handicap = handicap, komi = komi,
+            handicap = realHandicap, komi = komi,
             gameMessage = if (isPlayerFirst) "Your turn" else "AI thinking...",
             showNewGameDialog = false, gameMode = GameMode.PLAY
         )
@@ -568,11 +587,11 @@ class GameViewModel : ViewModel() {
             engine?.clearBoard()
             engine?.setKomi(komi)
 
-            if (handicap > 0) {
+            if (realHandicap > 0) {
                 // Place handicap stones via GTP
-                sendGtpCommand("fixed_handicap $handicap")
+                sendGtpCommand("fixed_handicap $realHandicap")
                 // Apply handicap on local board
-                val handicapPoints = getHandicapPoints(boardSize, handicap)
+                val handicapPoints = getHandicapPoints(boardSize, realHandicap)
                 for (pt in handicapPoints) {
                     newBoard.playMove(Move.Stone(pt, StoneColor.BLACK))
                 }
@@ -597,16 +616,26 @@ class GameViewModel : ViewModel() {
     }
 
     private fun getHandicapPoints(boardSize: Int, handicap: Int): List<Point> {
+        val maxHandicap = when (boardSize) { 19 -> 9; 13 -> 9; 9 -> 5; else -> 4 }
+        val h = handicap.coerceIn(0, maxHandicap)
         val points = when (boardSize) {
-            19 -> listOf(Point(3,3), Point(15,15), Point(15,3), Point(3,15), Point(3,9), Point(15,9), Point(9,3), Point(9,15), Point(9,9))
-            13 -> listOf(Point(3,3), Point(9,9), Point(9,3), Point(3,9), Point(3,6), Point(9,6), Point(6,3), Point(6,9), Point(6,6))
-            9  -> listOf(Point(2,2), Point(6,6), Point(6,2), Point(2,6), Point(2,4), Point(6,4), Point(4,2), Point(4,6), Point(4,4))
+            19 -> listOf(
+                Point(3,3), Point(15,15), Point(15,3), Point(3,15),
+                Point(3,9), Point(15,9), Point(9,3), Point(9,15), Point(9,9)
+            )
+            13 -> listOf(
+                Point(3,3), Point(9,9), Point(9,3), Point(3,9),
+                Point(3,6), Point(9,6), Point(6,3), Point(6,9), Point(6,6)
+            )
+            9 -> listOf(
+                Point(2,2), Point(6,6), Point(6,2), Point(2,6), Point(4,4)
+            )
             else -> {
-                val sp = (boardSize - 1) / 4 // approximate star point offset
+                val sp = (boardSize - 1) / 4
                 listOf(Point(sp, sp), Point(boardSize-1-sp, boardSize-1-sp), Point(boardSize-1-sp, sp), Point(sp, boardSize-1-sp))
             }
         }
-        return points.take(handicap)
+        return points.take(h)
     }
 
     fun selectModel(model: KataGoEngine.Model) {
