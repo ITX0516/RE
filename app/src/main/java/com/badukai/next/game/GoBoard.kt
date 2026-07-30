@@ -40,8 +40,8 @@ data class Point(val x: Int, val y: Int) {
 /**
  * Stone color
  */
-enum class StoneColor {
-    BLACK, WHITE;
+enum class StoneColor(val displayName: String) {
+    BLACK("Black"), WHITE("White");
 
     fun opposite(): StoneColor = if (this == BLACK) WHITE else BLACK
 
