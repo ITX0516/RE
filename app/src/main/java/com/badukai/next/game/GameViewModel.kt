@@ -4,8 +4,10 @@ import android.content.Context
 import com.badukai.next.analysis.GameRecorder
 import com.badukai.next.analysis.RecordedMove
 import com.badukai.next.audio.StoneSoundPlayer
+import com.badukai.next.game.SettingsStore
 import com.badukai.next.engine.KataGoEngine
 import com.badukai.next.logging.AppLogger
+import com.badukai.next.ui.BadukNextColors
 import com.badukai.next.ui.GameTheme
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -35,7 +37,7 @@ data class GameState(
     val isThinking: Boolean = false,
     val isEngineReady: Boolean = false,
     val isEngineStarting: Boolean = false,
-    val selectedModel: KataGoEngine.Model = KataGoEngine.Model.HUMAN,
+    val selectedModel: KataGoEngine.Model = KataGoEngine.Model.SIX_B,
     val gameMessage: String = "",
     val lastMovePoint: Point? = null,
     val capturedByBlack: Int = 0,
@@ -70,6 +72,7 @@ class GameViewModel : ViewModel() {
 
     private var engine: KataGoEngine? = null
     private var soundPlayer: StoneSoundPlayer? = null
+    lateinit var settingsStore: SettingsStore
     val recorder = GameRecorder()
 
     private val _state = MutableStateFlow(GameState())
@@ -82,6 +85,22 @@ class GameViewModel : ViewModel() {
         if (soundPlayer == null) {
             soundPlayer = StoneSoundPlayer(context)
         }
+
+        // Load persisted settings
+        if (!::settingsStore.isInitialized) {
+            settingsStore = SettingsStore(context)
+            val s = settingsStore
+            _state.value = _state.value.copy(
+                showCoordinates = s.showCoordinates,
+                soundEnabled = s.soundEnabled,
+                currentTheme = s.currentTheme,
+                placementMode = s.placementMode,
+                placeSoundIndex = s.placeSoundIndex
+            )
+            soundPlayer?.setPlaceSound(s.placeSoundIndex)
+            BadukNextColors.setTheme(s.currentTheme)
+        }
+
         recorder.reset()
     }
 
@@ -429,15 +448,28 @@ class GameViewModel : ViewModel() {
             }
         }
     }
-    fun toggleCoordinates() { _state.value = _state.value.copy(showCoordinates = !_state.value.showCoordinates) }
-    fun toggleSound() { _state.value = _state.value.copy(soundEnabled = !_state.value.soundEnabled) }
-    fun setTheme(theme: GameTheme) { _state.value = _state.value.copy(currentTheme = theme) }
+    fun toggleCoordinates() {
+        val v = !_state.value.showCoordinates
+        _state.value = _state.value.copy(showCoordinates = v)
+        if (::settingsStore.isInitialized) settingsStore.showCoordinates = v
+    }
+    fun toggleSound() {
+        val v = !_state.value.soundEnabled
+        _state.value = _state.value.copy(soundEnabled = v)
+        if (::settingsStore.isInitialized) settingsStore.soundEnabled = v
+    }
+    fun setTheme(theme: GameTheme) {
+        _state.value = _state.value.copy(currentTheme = theme)
+        if (::settingsStore.isInitialized) settingsStore.currentTheme = theme
+    }
     fun setPlaceSoundIndex(idx: Int) {
         _state.value = _state.value.copy(placeSoundIndex = idx)
         soundPlayer?.setPlaceSound(idx)
+        if (::settingsStore.isInitialized) settingsStore.placeSoundIndex = idx
     }
     fun setPlacementMode(mode: PlacementMode) {
         _state.value = _state.value.copy(placementMode = mode, pendingTap = null, doubleTapActive = false, confirmMoveQueued = null)
+        if (::settingsStore.isInitialized) settingsStore.placementMode = mode
     }
 
     fun setGameMode(mode: GameMode) {

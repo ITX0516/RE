@@ -46,12 +46,14 @@ class KataGoEngine(private val context: Context) {
     private val isRunning = AtomicBoolean(false)
 
     enum class Model(val displayName: String, val fileName: String, val description: String) {
-        HUMAN("Human", "10b.bin", "Approachable AI opponent, fast responses"),
-        SUPERHUMAN("Superhuman", "18b.bin", "Very strong AI, balanced performance"),
-        GODLIKE("Godlike", "28b.bin", "Ultimate strength, may be slower on some devices")
+        SIX_B("6b", ModelManager.MODEL_FILENAME, "Efficient 6-block KataGo model")
+
+        // Single model only — downloaded on first launch.
+        // Remove these when other models are no longer supported.
+        ;
     }
 
-    suspend fun start(model: Model = Model.HUMAN): Boolean = withContext(Dispatchers.IO) {
+    suspend fun start(model: Model = Model.SIX_B): Boolean = withContext(Dispatchers.IO) {
         if (isRunning.get()) {
             AppLogger.w(TAG, "Engine already running")
             return@withContext true
@@ -83,13 +85,19 @@ class KataGoEngine(private val context: Context) {
                 AppLogger.i(TAG, "Copied config file: ${configFile.absolutePath}")
             }
 
-            val appDir = File(filesDir, "app")
-            if (!appDir.exists()) appDir.mkdirs()
-
-            val modelFile = File(appDir, model.fileName)
-            if (!modelFile.exists()) {
-                copyAssetToFile("models/${model.fileName}", modelFile)
+            // Download 6b model if not already present
+            if (!ModelManager.isModelAvailable(context)) {
+                AppLogger.i(TAG, "Downloading model (6b)...")
+                val result = ModelManager.downloadModel(context)
+                if (result.isFailure) {
+                    AppLogger.e(TAG, "Model download failed: ${result.exceptionOrNull()?.message}")
+                    return@withContext false
+                }
             }
+
+            // The model is in filesDir/models/ — locate it
+            val modelDir = File(context.filesDir, "models")
+            val modelFile = File(modelDir, model.fileName)
 
             AppLogger.i(TAG, "Model: ${modelFile.absolutePath} (exists=${modelFile.exists()}, size=${modelFile.length()})")
             AppLogger.i(TAG, "Config: ${configFile.absolutePath} (exists=${configFile.exists()})")

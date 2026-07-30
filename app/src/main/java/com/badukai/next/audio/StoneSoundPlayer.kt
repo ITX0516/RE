@@ -32,7 +32,7 @@ class StoneSoundPlayer(context: Context) {
         var loadedCount = 0
         soundPool?.setOnLoadCompleteListener { _, _, status ->
             if (status == 0) loadedCount++
-            if (loadedCount >= placeCount + 1) loaded = true
+            if (loadedCount >= placeCount) loaded = true
         }
 
         placeSoundIds[0] = soundPool?.load(context, R.raw.stone_place_1, 1) ?: 0
@@ -47,14 +47,11 @@ class StoneSoundPlayer(context: Context) {
     }
 
     fun playPlace() {
-        if (loaded) {
-            val id = placeSoundIds[selectedPlace]
-            if (id != 0) soundPool?.play(id, 1.0f, 1.0f, 1, 0, 1.0f)
-        }
+        val id = placeSoundIds[selectedPlace]
+        if (id != 0) soundPool?.play(id, 1.0f, 1.0f, 1, 0, 1.0f)
     }
 
     fun playCapture() {
-        // Use same selected place sound for capture
         playPlace()
     }
 
