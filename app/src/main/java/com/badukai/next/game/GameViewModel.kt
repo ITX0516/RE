@@ -59,6 +59,8 @@ data class GameState(
     val doubleTapActive: Boolean = false,
     val confirmMoveQueued: Point? = null,
     val placeSoundIndex: Int = 0,
+    val handicap: Int = 0,
+    val komi: Float = 7.5f,
     val showTerritoryDialog: Boolean = false,
     val territoryResult: String = "",
     val winrate: Float = 0f,
@@ -540,26 +542,71 @@ class GameViewModel : ViewModel() {
         }
     }
 
-    fun startNewGame(playerColor: StoneColor, boardSize: Int) {
+    fun startNewGame(playerColor: StoneColor, boardSize: Int, handicap: Int, komi: Float) {
         val s = _state.value
         freeStoneColor = StoneColor.BLACK
         _state.value = _state.value.copy(winrateHistory = emptyList(), scoreLeadHistory = emptyList())
         recorder.reset()
+
+        // If AI has handicap (AI plays Black), player goes first as White
+        val aiColor = playerColor.opposite()
+        val isPlayerFirst = if (handicap > 0) aiColor == StoneColor.BLACK else playerColor == StoneColor.BLACK
+
         val newBoard = GoBoard(boardSize)
-        val isPlayerFirst = playerColor == StoneColor.BLACK
         _state.value = s.copy(
             board = newBoard, boardSize = boardSize,
             currentPlayer = StoneColor.BLACK, playerColor = playerColor,
             isPlayerTurn = isPlayerFirst, lastMovePoint = null,
             capturedByBlack = 0, capturedByWhite = 0,
+            handicap = handicap, komi = komi,
             gameMessage = if (isPlayerFirst) "Your turn" else "AI thinking...",
             showNewGameDialog = false, gameMode = GameMode.PLAY
         )
+
         viewModelScope.launch {
-            engine?.setBoardSize(boardSize); engine?.clearBoard()
-            engine?.setKomi(if (boardSize == 9) 5.5f else 7.5f)
+            engine?.setBoardSize(boardSize)
+            engine?.clearBoard()
+            engine?.setKomi(komi)
+
+            if (handicap > 0) {
+                // Place handicap stones via GTP
+                sendGtpCommand("fixed_handicap $handicap")
+                // Apply handicap on local board
+                val handicapPoints = getHandicapPoints(boardSize, handicap)
+                for (pt in handicapPoints) {
+                    newBoard.playMove(Move.Stone(pt, StoneColor.BLACK))
+                }
+                _state.value = _state.value.copy(
+                    board = newBoard,
+                    currentPlayer = StoneColor.WHITE,
+                    isPlayerTurn = playerColor == StoneColor.WHITE,
+                    capturedByBlack = newBoard.getCapturedWhite(),
+                    capturedByWhite = newBoard.getCapturedBlack()
+                )
+            }
+
             if (!isPlayerFirst) requestAiMove()
         }
+    }
+
+    private fun sendGtpCommand(cmd: String) {
+        viewModelScope.launch {
+            engine?.sendCommand(cmd)
+            engine?.waitForResponse(5000)
+        }
+    }
+
+    private fun getHandicapPoints(boardSize: Int, handicap: Int): List<Point> {
+        val points = when (boardSize) {
+            19 -> listOf(Point(3,3), Point(15,15), Point(15,3), Point(3,15), Point(3,9), Point(15,9), Point(9,3), Point(9,15), Point(9,9))
+            13 -> listOf(Point(3,3), Point(9,9), Point(9,3), Point(3,9), Point(3,6), Point(9,6), Point(6,3), Point(6,9), Point(6,6))
+            9  -> listOf(Point(2,2), Point(6,6), Point(6,2), Point(2,6), Point(2,4), Point(6,4), Point(4,2), Point(4,6), Point(4,4))
+            else -> {
+                val sp = (boardSize - 1) / 4 // approximate star point offset
+                listOf(Point(sp, sp), Point(boardSize-1-sp, boardSize-1-sp), Point(boardSize-1-sp, sp), Point(sp, boardSize-1-sp))
+            }
+        }
+        return points.take(handicap)
     }
 
     fun selectModel(model: KataGoEngine.Model) {

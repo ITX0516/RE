@@ -44,7 +44,8 @@ fun GameScreen(
     onTerritoryEstimate: () -> Unit,
     onUndo: () -> Unit,
     onNewGame: () -> Unit,
-    onStartNewGame: (StoneColor, Int) -> Unit,
+    onStartNewGame: (StoneColor, Int, Int, Float) -> Unit,
+    //                      color   size  handicap komi
     onDismissNewGame: () -> Unit,
     onShowModelSelector: () -> Unit,
     onSelectModel: (KataGoEngine.Model) -> Unit,
@@ -471,50 +472,98 @@ private fun CaptureChip(
 @Composable
 private fun NewGameDialog(
     onDismiss: () -> Unit,
-    onStartGame: (StoneColor, Int) -> Unit
+    onStartGame: (StoneColor, Int, Int, Float) -> Unit
 ) {
     val colors = BadukNextColors
     var selectedColor by remember { mutableStateOf(StoneColor.BLACK) }
     var selectedSize by remember { mutableIntStateOf(19) }
+    var selectedHandicap by remember { mutableIntStateOf(0) }
+    var komiText by remember { mutableStateOf("7.5") }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = colors.Surface,
-            shadowElevation = 6.dp
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+        Surface(shape = RoundedCornerShape(16.dp), color = colors.Surface, shadowElevation = 6.dp) {
+            Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("New Game", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.TextPrimary)
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(14.dp))
 
-                Text("Play as", color = colors.TextSecondary, fontSize = 12.sp)
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ColorOption(color = StoneColor.BLACK, label = "Black", selected = selectedColor == StoneColor.BLACK, onClick = { selectedColor = StoneColor.BLACK })
-                    ColorOption(color = StoneColor.WHITE, label = "White", selected = selectedColor == StoneColor.WHITE, onClick = { selectedColor = StoneColor.WHITE })
+                // AI color
+                Text("AI plays", color = colors.TextSecondary, fontSize = 12.sp)
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StoneColor.entries.forEach { c ->
+                        val sel = selectedColor != c // player = opposite of AI
+                        Box(
+                            Modifier.clip(RoundedCornerShape(8.dp)).background(if (sel != (selectedColor == StoneColor.BLACK)) colors.AccentLight else colors.SurfaceVariant)
+                                .border(1.dp, if (sel != (selectedColor == StoneColor.BLACK)) colors.Accent else colors.Divider, RoundedCornerShape(8.dp))
+                                .clickable { selectedColor = c.opposite() }.padding(horizontal = 16.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(c.displayName, color = colors.TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
                 }
 
-                Spacer(Modifier.height(16.dp))
-                Text("Board size", color = colors.TextSecondary, fontSize = 12.sp)
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(9, 13, 19).forEach { size ->
-                        SizeOption(size = size, selected = selectedSize == size, onClick = { selectedSize = size })
+                Spacer(Modifier.height(14.dp))
+
+                // Board size slider (7-19)
+                Text("Board: ${selectedSize}\u00D7${selectedSize}", color = colors.TextSecondary, fontSize = 12.sp)
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                    Box(Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).clickable { if (selectedSize > 7) selectedSize-- }.padding(horizontal = 10.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                        Text("\u2212", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Text("$selectedSize", Modifier.width(40.dp), textAlign = TextAlign.Center, color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Box(Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).clickable { if (selectedSize < 19) selectedSize++ }.padding(horizontal = 10.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                        Text("+", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+
+                // Handicap (0-9)
+                Text("Handicap: $selectedHandicap", color = colors.TextSecondary, fontSize = 12.sp)
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                    Box(Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).clickable { if (selectedHandicap > 0) selectedHandicap-- }.padding(horizontal = 10.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                        Text("\u2212", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Text("$selectedHandicap", Modifier.width(40.dp), textAlign = TextAlign.Center, color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Box(Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).clickable { if (selectedHandicap < 9) selectedHandicap++ }.padding(horizontal = 10.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                        Text("+", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+
+                // Komi
+                Text("Komi", color = colors.TextSecondary, fontSize = 12.sp)
+                Spacer(Modifier.height(4.dp))
+                Box(
+                    Modifier.width(80.dp).clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).border(1.dp, colors.Divider, RoundedCornerShape(6.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(komiText, color = colors.TextPrimary, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("0.5", "6.5", "7.5").forEach { preset ->
+                        Box(Modifier.clip(RoundedCornerShape(4.dp)).background(if (komiText == preset) colors.AccentLight else colors.SurfaceVariant).clickable { komiText = preset }.padding(horizontal = 10.dp, vertical = 4.dp), contentAlignment = Alignment.Center) {
+                            Text(preset, color = colors.TextPrimary, fontSize = 11.sp)
+                        }
                     }
                 }
 
                 Spacer(Modifier.height(20.dp))
-                Box(
-                    modifier = Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp)).background(colors.Accent)
-                        .clickable { onStartGame(selectedColor, selectedSize) }
-                        .padding(vertical = 12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("Start", color = colors.TextOnAccent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+
+                // Buttons
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(colors.Surface).border(1.dp, colors.Divider, RoundedCornerShape(8.dp)).clickable(onClick = onDismiss).padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                        Text("Cancel", color = colors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    Box(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(colors.Accent).clickable {
+                        onStartGame(selectedColor, selectedSize, selectedHandicap, komiText.toFloatOrNull() ?: 7.5f)
+                    }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                        Text("Start", color = colors.TextOnAccent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }
