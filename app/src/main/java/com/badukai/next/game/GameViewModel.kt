@@ -62,6 +62,7 @@ data class GameState(
     val handicap: Int = 0,
     val komi: Float = 7.5f,
     val showTerritoryDialog: Boolean = false,
+    val showTerritoryOverlay: Boolean = false,
     val territoryResult: String = "",
     val winrate: Float = 0f,
     val scoreLead: Float = 0f,
@@ -427,9 +428,11 @@ class GameViewModel : ViewModel() {
     fun showSettingsDialog() { _state.value = _state.value.copy(showSettings = true) }
     fun hideSettingsDialog() { _state.value = _state.value.copy(showSettings = false) }
 
-    fun showTerritoryDialog() {
-        estimateScore()
-        _state.value = _state.value.copy(showTerritoryDialog = true)
+    fun toggleTerritoryOverlay() {
+        val s = _state.value
+        val newVal = !s.showTerritoryOverlay
+        if (newVal) estimateScore()
+        _state.value = s.copy(showTerritoryOverlay = newVal, showTerritoryDialog = newVal)
     }
     fun hideTerritoryDialog() { _state.value = _state.value.copy(showTerritoryDialog = false, territoryResult = "") }
 

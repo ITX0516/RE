@@ -52,8 +52,6 @@ fun GameScreen(
     onDismissModelSelector: () -> Unit,
     onShowSettings: () -> Unit,
     onDismissSettings: () -> Unit,
-    onDismissTerritory: () -> Unit,
-    onForceEndGame: () -> Unit,
     onToggleCoordinates: () -> Unit,
     onToggleSound: () -> Unit,
     onSetTheme: (GameTheme) -> Unit,
@@ -179,8 +177,28 @@ fun GameScreen(
                     board = state.board, lastMovePoint = state.lastMovePoint,
                     onIntersectionTap = onBoardTap, enabled = state.isEngineReady && !state.isThinking,
                     showCoordinates = state.showCoordinates,
-                    pendingDot = state.pendingTap
+                    pendingDot = state.pendingTap,
+                    showTerritory = state.showTerritoryOverlay,
+                    ownership = state.ownership
                 )
+            }
+        }
+
+        // ── Territory info bar (inline, non-blocking) ──
+        if (state.showTerritoryOverlay && state.territoryResult.isNotEmpty()) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp),
+                shape = RoundedCornerShape(6.dp), color = colors.SurfaceVariant, shadowElevation = 0.5.dp
+            ) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(state.territoryResult, color = colors.TextPrimary, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Box(
+                        Modifier.clip(RoundedCornerShape(6.dp)).background(colors.Danger).clickable { /* force end game */ }.padding(horizontal = 8.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("End", color = colors.TextOnAccent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
             }
         }
 
@@ -216,13 +234,6 @@ fun GameScreen(
             onSetTheme = onSetTheme,
             onSetPlacementMode = onSetPlacementMode,
             onSetPlaceSound = onSetPlaceSound
-        )
-    }
-    if (state.showTerritoryDialog) {
-        TerritoryDialog(
-            result = state.territoryResult,
-            onDismiss = onDismissTerritory,
-            onForceEndGame = onForceEndGame
         )
     }
 }
@@ -829,43 +840,6 @@ private fun SettingsRadioOption(label: String, selected: Boolean, onClick: () ->
             Box(modifier = Modifier.size(16.dp).clip(CircleShape).border(if (selected) 5.dp else 1.5.dp, if (selected) colors.Accent else colors.TextSecondary, CircleShape))
             Spacer(Modifier.width(10.dp))
             Text(label, color = colors.TextPrimary, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
-        }
-    }
-}
-
-@Composable
-private fun TerritoryDialog(result: String, onDismiss: () -> Unit, onForceEndGame: () -> Unit) {
-    val colors = BadukNextColors
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(16.dp), color = colors.Surface, shadowElevation = 6.dp) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text("Territory Estimate", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.TextPrimary)
-                Spacer(Modifier.height(14.dp))
-                Text(result, color = colors.TextPrimary, fontSize = 14.sp)
-                Spacer(Modifier.height(18.dp))
-                Box(
-                    modifier = Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp)).background(colors.Danger)
-                        .clickable(onClick = onForceEndGame)
-                        .padding(vertical = 11.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("Force End Game", color = colors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                }
-                Spacer(Modifier.height(8.dp))
-                Box(
-                    modifier = Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp)).background(colors.Accent)
-                        .clickable(onClick = onDismiss)
-                        .padding(vertical = 11.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("Close", color = colors.TextOnAccent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                }
-            }
         }
     }
 }
