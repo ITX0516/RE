@@ -138,11 +138,10 @@ fun GameScreen(
 
         // 3. Win rate bar (real data from kata-analyze)
         val wr = if (state.winrate > 0f) state.winrate else 0.5f
+        val blackWR = 1f - wr
         Box(
             modifier = Modifier.fillMaxWidth().height(8.dp).padding(horizontal = 12.dp).clip(RoundedCornerShape(4.dp)).background(colors.Divider)
         ) {
-            // White's winrate bar (flip for display: black on left)
-            val blackWR = 1f - wr
             Box(
                 modifier = Modifier.fillMaxHeight().fillMaxWidth(blackWR.coerceIn(0f, 1f))
                     .clip(RoundedCornerShape(4.dp)).background(colors.BlackStone)

@@ -403,19 +403,24 @@ class GameViewModel : ViewModel() {
             } else {
                 // Use latest analysis if available
                 if (s.winrate > 0) {
-                    val wr = "%.1f".format(s.winrate * 100)
+                    val bw = "%.1f".format((1f - s.winrate) * 100f)
+                    val ww = "%.1f".format(s.winrate * 100f)
                     val lead = "%.1f".format(s.scoreLead)
+                    val side = if (s.scoreLead >= 0) "B" else "W"
                     _state.value = _state.value.copy(
-                        territoryResult = "Win rate: B ${100 - s.winrate * 100:.1f}% / W ${wr}%\nScore: ${if (s.scoreLead >= 0) "B+" else "W+"}${kotlin.math.abs(s.scoreLead).let { "%.1f".format(it) }}"
+                        territoryResult = "Win rate: B $bw% / W $ww%\nScore: $side+$lead"
                     )
                 } else {
-                    // No analysis yet, request it
                     val result = engine?.analyzePosition(500)
                     if (result != null) {
+                        val bw = "%.1f".format((1f - result.winrate.toFloat()) * 100f)
+                        val ww = "%.1f".format(result.winrate.toFloat() * 100f)
+                        val lead = "%.1f".format(result.scoreLead.toFloat())
+                        val side = if (result.scoreLead >= 0) "B" else "W"
                         _state.value = _state.value.copy(
                             winrate = result.winrate.toFloat(),
                             scoreLead = result.scoreLead.toFloat(),
-                            territoryResult = "Win rate: B ${"%.1f".format((1 - result.winrate) * 100)}% / W ${"%.1f".format(result.winrate * 100)}%\nScore: ${if (result.scoreLead >= 0) "B+" else "W+"}${"%.1f".format(kotlin.math.abs(result.scoreLead))}"
+                            territoryResult = "Win rate: B $bw% / W $ww%\nScore: $side+$lead"
                         )
                     } else {
                         _state.value = _state.value.copy(territoryResult = "kata-analyze not available\nBlack captured: ${s.capturedByBlack}\nWhite captured: ${s.capturedByWhite}")
