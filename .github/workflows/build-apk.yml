@@ -38,9 +38,13 @@ jobs:
         run: |
           chmod +x ./setup-from-badukai.sh
           ./setup-from-badukai.sh
+          echo "=== Assets before cleanup ==="
+          du -sh app/src/main/assets/*/ 2>/dev/null || echo "no subdirs"
+          du -sh app/src/main/jniLibs/ 2>/dev/null || echo "no jniLibs"
           # Remove old model files — we download 6b at runtime
-          rm -rf app/src/main/assets/models
-          echo "Removed bundled models, APK will download 6b on first launch"
+          rm -rvf app/src/main/assets/models
+          echo "=== Assets after cleanup ==="
+          du -sh app/src/main/assets/*/ 2>/dev/null || echo "no subdirs"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -51,7 +55,12 @@ jobs:
         run: gradle wrapper --gradle-version 8.5
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace --no-daemon
+        run: |
+          echo "=== APK content estimate ==="
+          find app/src/main -name "*.so" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}' | sort -rh | head -20
+          find app/src/main -name "*.bin*" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}'
+          echo "=== Building ==="
+          ./gradlew assembleDebug --stacktrace --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
