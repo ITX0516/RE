@@ -1,7 +1,6 @@
 package com.badukai.next.game
 
 import android.content.Context
-import com.badukai.next.analysis.AnalyzeResult
 import com.badukai.next.analysis.GameRecorder
 import com.badukai.next.analysis.RecordedMove
 import com.badukai.next.audio.StoneSoundPlayer

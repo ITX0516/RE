@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import com.badukai.next.analysis.AnalyzeResult
 import com.badukai.next.analysis.CandidateMove
+import com.badukai.next.game.Point
 import org.json.JSONObject
 import org.json.JSONArray
 import java.io.*
@@ -359,14 +360,18 @@ class KataGoEngine(private val context: Context) {
             val movesJson = json.optJSONArray("moves")
             val candidates = mutableListOf<CandidateMove>()
             if (movesJson != null) {
+                val boardSize = 19 // default
                 for (i in 0 until minOf(movesJson.length(), 10)) {
                     val m = movesJson.getJSONObject(i)
+                    val gtpMove = m.optString("move", null)
+                    val cm = if (gtpMove != null) CandidateMove.fromGtp(gtpMove, boardSize) else null
                     candidates.add(CandidateMove(
-                        move = m.optString("move", null),
-                        winrate = m.optDouble("winrate", 0.5),
-                        scoreLead = m.optDouble("scoreLead", 0.0),
+                        x = cm?.x ?: -1,
+                        y = cm?.y ?: -1,
+                        winRate = m.optDouble("winrate", 0.5).toFloat(),
+                        scoreLead = m.optDouble("scoreLead", 0.0).toFloat(),
                         visits = m.optInt("visits", 0),
-                        order = i
+                        isBest = i == 0
                     ))
                 }
             }
