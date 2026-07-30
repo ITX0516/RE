@@ -124,7 +124,7 @@ fun GoBoard(
                 val r = (1f - ratio) * 0.4f // green=0, yellow=0.4
                 val g = 0.7f + ratio * 0.3f  // green 0.7->1.0
                 val b = 0f
-                val markerColor = Color(r, g, b, 0.45f)
+                val markerColor = Color(red = r, green = g, blue = b, alpha = 0.45f)
                 val px = padding + cx * cellSize
                 val py = padding + cy * cellSize
                 drawCircle(markerColor, radius = cellSize * 0.35f, center = Offset(px, py))
@@ -312,11 +312,11 @@ private fun DrawScope.drawStones(
 
             val (ox, oy) = stoneOffset(x, y)
             val centerX = padding + x * cellSize + ox
+            val isNewStone = lastMovePoint?.x == x && lastMovePoint.y == y
+            val dropOff = if (isNewStone) animOffset else 0f
             val centerY = padding + y * cellSize + oy + dropOff
             val center = Offset(centerX, centerY)
-            val isNewStone = lastMovePoint?.x == x && lastMovePoint.y == y
             val scale = if (isNewStone && animScale < 1f) animScale else 1f
-            val dropOff = if (isNewStone) animOffset else 0f
             val r = stoneRadius * scale
 
             when (intersection) {
