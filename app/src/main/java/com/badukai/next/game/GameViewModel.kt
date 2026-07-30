@@ -279,8 +279,7 @@ class GameViewModel : ViewModel() {
 
     private fun requestAnalysis() {
         viewModelScope.launch {
-            val result = engine?.analyzePosition(300)
-            if (result != null) {
+            val result = engine?.analyzePosition(100) // lower visits for speed
                 val s = _state.value
                 val candidates = result.moves.take(10).map { cm ->
                     val coord = if (cm.x >= 0 && cm.y >= 0) {
@@ -479,7 +478,8 @@ class GameViewModel : ViewModel() {
                             territoryResult = "Win rate: B $bw% / W $ww%\nScore: $side+$lead"
                         )
                     } else {
-                        _state.value = _state.value.copy(territoryResult = "Analysis failed (check logs)\nBlack: ${s.capturedByBlack}  White: ${s.capturedByWhite}")
+                        val stoneCount = s.board.getMoveCount()
+                        _state.value = _state.value.copy(territoryResult = "Analysis unavailable — check engine supports kata-analyze\nCaptures: B=${s.capturedByBlack} W=${s.capturedByWhite}\nStone count: $stoneCount")
                     }
                 }
             }
