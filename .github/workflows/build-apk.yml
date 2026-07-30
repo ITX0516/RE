@@ -38,6 +38,9 @@ jobs:
         run: |
           chmod +x ./setup-from-badukai.sh
           ./setup-from-badukai.sh
+          # Remove old model files — we download 6b at runtime
+          rm -rf app/src/main/assets/models
+          echo "Removed bundled models, APK will download 6b on first launch"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3

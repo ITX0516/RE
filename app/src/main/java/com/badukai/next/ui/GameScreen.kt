@@ -290,7 +290,7 @@ private fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> U
     ) {
         when (selectedTab) {
             AnalysisTab.MOVE_TREE -> MoveTreeContent(state)
-            AnalysisTab.CHART -> ChartPlaceholder()
+            AnalysisTab.CHART -> WinrateChartContent(state.winrateHistory, state.scoreLeadHistory)
             AnalysisTab.CANDIDATES -> CandidatesPlaceholder()
         }
     }
@@ -329,16 +329,69 @@ private fun MoveTreeContent(state: GameState) {
 
 @Composable
 private fun ChartPlaceholder() {
+    WinrateChartContent(emptyList(), emptyList())
+}
+
+@Composable
+private fun WinrateChartContent(winrateHistory: List<Float>, scoreLeadHistory: List<Float>) {
     val colors = BadukNextColors
-    val lineColor = colors.Divider
+    val chartType = remember { mutableStateOf("wr") } // "wr" or "sl"
+
+    if (winrateHistory.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No analysis data", color = colors.TextSecondary, fontSize = 11.sp)
+        }
+        return
+    }
+
     Canvas(modifier = Modifier.fillMaxSize().padding(6.dp)) {
         val w = size.width; val h = size.height; val pad = 25f
-        for (i in 0..4) { val y = pad + (h - 2 * pad) * (1f - i / 4f); drawLine(lineColor, start = Offset(pad, y), end = Offset(w - pad, y), strokeWidth = 0.5f) }
-        drawLine(lineColor, start = Offset(pad, pad), end = Offset(pad, h - pad), strokeWidth = 1f)
-        drawLine(lineColor, start = Offset(pad, h - pad), end = Offset(w - pad, h - pad), strokeWidth = 1f)
+        val cw = w - 2 * pad; val ch = h - 2 * pad
+
+        // Grid
+        val gridColor = colors.Divider
+        for (i in 0..4) {
+            val y = pad + ch * (1f - i / 4f)
+            drawLine(gridColor, start = Offset(pad, y), end = Offset(w - pad, y), strokeWidth = 0.5f)
+        }
+        drawLine(gridColor, start = Offset(pad, pad), end = Offset(pad, h - pad), strokeWidth = 1f)
+        drawLine(gridColor, start = Offset(pad, h - pad), end = Offset(w - pad, h - pad), strokeWidth = 1f)
+
+        val data = if (chartType.value == "wr") winrateHistory else scoreLeadHistory
+        if (data.size < 2) return@Canvas
+
+        // Find min/max for scaling
+        val minVal = data.min().coerceAtMost(if (chartType.value == "wr") 0f else -20f)
+        val maxVal = data.max().coerceAtLeast(if (chartType.value == "wr") 1f else 20f)
+        val range = (maxVal - minVal).coerceAtLeast(0.01f)
+
+        val stepX = cw / (data.size - 1).coerceAtLeast(1)
+        val lineColor = if (chartType.value == "wr") colors.Accent else colors.Danger
+
+        // Draw line
+        for (i in 0 until data.size - 1) {
+            val x1 = pad + i * stepX
+            val y1 = pad + ch * (1f - (data[i] - minVal) / range)
+            val x2 = pad + (i + 1) * stepX
+            val y2 = pad + ch * (1f - (data[i + 1] - minVal) / range)
+            drawLine(lineColor, start = Offset(x1, y1), end = Offset(x2, y2), strokeWidth = 2f)
+
+            // Dot on each point
+            drawCircle(lineColor, radius = 2f, center = Offset(x1, y1))
+            if (i == data.size - 2) drawCircle(lineColor, radius = 2f, center = Offset(x2, y2))
+        }
     }
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("Analysis required", color = colors.TextSecondary, fontSize = 11.sp)
+
+    // Mini tabs for wr vs sl switching
+    Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp), contentAlignment = Alignment.BottomCenter) {
+        Row(Modifier.clip(RoundedCornerShape(4.dp)).background(colors.SurfaceVariant)) {
+            listOf("wr" to "Win%", "sl" to "Score").forEach { (key, label) ->
+                val sel = chartType.value == key
+                Box(Modifier.clip(RoundedCornerShape(3.dp)).background(if (sel) colors.Accent else Color.Transparent).clickable { chartType.value = key }.padding(horizontal = 8.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {
+                    Text(label, color = if (sel) colors.TextOnAccent else colors.TextSecondary, fontSize = 9.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
+                }
+            }
+        }
     }
 }
 

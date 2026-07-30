@@ -53,6 +53,8 @@ data class GameState(
     val placementMode: PlacementMode = PlacementMode.TAP,
     val analysisMoveIndex: Int = 0,
     val analysisMoves: List<RecordedMove> = emptyList(),
+    val winrateHistory: List<Float> = emptyList(),
+    val scoreLeadHistory: List<Float> = emptyList(),
     val pendingTap: Point? = null,
     val doubleTapActive: Boolean = false,
     val confirmMoveQueued: Point? = null,
@@ -267,10 +269,13 @@ class GameViewModel : ViewModel() {
         viewModelScope.launch {
             val result = engine?.analyzePosition(300)
             if (result != null) {
-                _state.value = _state.value.copy(
+                val s = _state.value
+                _state.value = s.copy(
                     winrate = result.winrate.toFloat(),
                     scoreLead = result.scoreLead.toFloat(),
-                    ownership = result.ownership?.map { it.toFloat() }
+                    ownership = result.ownership?.map { it.toFloat() },
+                    winrateHistory = s.winrateHistory + result.winrate.toFloat(),
+                    scoreLeadHistory = s.scoreLeadHistory + result.scoreLead.toFloat()
                 )
             }
         }
@@ -338,6 +343,8 @@ class GameViewModel : ViewModel() {
                     val m = Move.Stone(pt, color)
                     s.board.playMove(m)
                     recorder.recordMove(m)
+                    if (s.soundEnabled) soundPlayer?.playPlace()
+                    requestAnalysis()
                     _state.value = _state.value.copy(
                         currentPlayer = color.opposite(), isPlayerTurn = true,
                         lastMovePoint = pt,
@@ -536,6 +543,7 @@ class GameViewModel : ViewModel() {
     fun startNewGame(playerColor: StoneColor, boardSize: Int) {
         val s = _state.value
         freeStoneColor = StoneColor.BLACK
+        _state.value = _state.value.copy(winrateHistory = emptyList(), scoreLeadHistory = emptyList())
         recorder.reset()
         val newBoard = GoBoard(boardSize)
         val isPlayerFirst = playerColor == StoneColor.BLACK
