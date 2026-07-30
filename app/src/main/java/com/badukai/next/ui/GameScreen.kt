@@ -73,104 +73,97 @@ fun GameScreen(
         modifier = modifier.fillMaxSize().background(colors.Background),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 1. Top bar: New game / Mode toggle / Settings
+        // ── Top bar: mode toggle + status + settings ──
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = colors.Surface,
-            shadowElevation = 0.5.dp
+            shadowElevation = 0.3.dp
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                IconButton(onClick = onNewGame, modifier = Modifier.size(36.dp)) {
-                    Text("\u2795", fontSize = 16.sp)
-                }
-
+            Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+                // Line 1: status text + mode toggle
                 Row(
-                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(colors.SurfaceVariant),
-                    horizontalArrangement = Arrangement.SpaceEvenly
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    GameMode.entries.forEach { mode ->
-                        val selected = mode == state.gameMode
-                        Box(
-                            modifier = Modifier.weight(1f)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (selected) colors.Accent else Color.Transparent)
-                                .clickable { onSetGameMode(mode) }
-                                .padding(horizontal = 20.dp, vertical = 7.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                mode.displayName,
-                                color = if (selected) colors.TextOnAccent else colors.TextSecondary,
-                                fontSize = 13.sp, fontWeight = FontWeight.SemiBold
-                            )
+                    Text(
+                        state.gameMessage.ifEmpty { "Ready" },
+                        color = colors.TextPrimary, fontSize = 12.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Row(
+                        Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        GameMode.entries.forEach { mode ->
+                            val sel = mode == state.gameMode
+                            Box(
+                                Modifier.clip(RoundedCornerShape(5.dp))
+                                    .background(if (sel) colors.Accent else Color.Transparent)
+                                    .clickable { onSetGameMode(mode) }
+                                    .padding(horizontal = 12.dp, vertical = 3.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(mode.displayName, color = if (sel) colors.TextOnAccent else colors.TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }
                         }
                     }
                 }
-
-                Box(
-                    modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp))
-                        .background(colors.SurfaceVariant)
-                        .clickable(onClick = onShowSettings),
-                    contentAlignment = Alignment.Center
+                // Line 2: captures + board size + settings
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("\u2699\uFE0E", fontSize = 16.sp, color = colors.TextPrimary)
+                    // Left: black stone + captured
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(12.dp).clip(CircleShape).background(colors.BlackStone))
+                        Spacer(Modifier.width(4.dp))
+                        Text("${state.capturedByBlack}", color = colors.TextSecondary, fontSize = 11.sp)
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                        Text("${state.boardSize}\u00D7${state.boardSize}", color = colors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${state.capturedByWhite}", color = colors.TextSecondary, fontSize = 11.sp)
+                        Spacer(Modifier.width(4.dp))
+                        Box(Modifier.size(12.dp).clip(CircleShape).background(colors.WhiteStone).then(Modifier.border(0.5.dp, colors.WhiteStoneBorder, CircleShape)))
+                    }
                 }
             }
         }
 
-        // 2. Game info: captures + current player
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            GameInfoChip("Black", state.capturedByBlack, state.currentPlayer == StoneColor.BLACK)
-            Text(
-                "${state.boardSize}\u00D7${state.boardSize}",
-                color = colors.TextSecondary, fontSize = 12.sp,
-                modifier = Modifier.align(Alignment.CenterVertically)
-            )
-            GameInfoChip("White", state.capturedByWhite, state.currentPlayer == StoneColor.WHITE)
-        }
-
-        // 3. Win rate bar (real data from kata-analyze)
+        // ── Win rate bar ──
         val wr = if (state.winrate > 0f) state.winrate else 0.5f
         val blackWR = 1f - wr
-        Box(
-            modifier = Modifier.fillMaxWidth().height(8.dp).padding(horizontal = 12.dp).clip(RoundedCornerShape(4.dp)).background(colors.Divider)
-        ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp)) {
             Box(
-                modifier = Modifier.fillMaxHeight().fillMaxWidth(blackWR.coerceIn(0f, 1f))
-                    .clip(RoundedCornerShape(4.dp)).background(colors.BlackStone)
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("B ${"%.1f".format(blackWR * 100)}%", color = colors.TextSecondary, fontSize = 10.sp)
-            if (wr > 0f) {
-                Text(
-                    "${if (state.scoreLead >= 0) "B+" else "W+"}${"%.1f".format(kotlin.math.abs(state.scoreLead))}",
-                    color = colors.TextPrimary, fontSize = 10.sp, fontWeight = FontWeight.Medium
+                Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(colors.Divider)
+            ) {
+                Box(
+                    Modifier.fillMaxHeight().fillMaxWidth(blackWR.coerceIn(0f, 1f))
+                        .clip(RoundedCornerShape(3.dp)).background(colors.BlackStone)
                 )
             }
-            Text("W ${"%.1f".format(wr * 100)}%", color = colors.TextSecondary, fontSize = 10.sp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("B ${"%.1f".format(blackWR * 100)}%", color = colors.TextSecondary, fontSize = 9.sp)
+                if (wr > 0f) {
+                    Text("${if (state.scoreLead >= 0) "B+" else "W+"}${"%.1f".format(kotlin.math.abs(state.scoreLead))}", color = colors.TextPrimary, fontSize = 9.sp, fontWeight = FontWeight.Medium)
+                }
+                Text("W ${"%.1f".format(wr * 100)}%", color = colors.TextSecondary, fontSize = 9.sp)
+            }
         }
 
-        Spacer(Modifier.height(6.dp))
-
-        // 4. Board
+        // ── Board ──
         Box(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
+            modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 4.dp),
             contentAlignment = Alignment.Center
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth().aspectRatio(1f),
-                shape = RoundedCornerShape(6.dp), shadowElevation = 2.dp
+                shape = RoundedCornerShape(4.dp), shadowElevation = 1.dp
             ) {
                 GoBoard(
                     board = state.board, lastMovePoint = state.lastMovePoint,
@@ -181,14 +174,12 @@ fun GameScreen(
             }
         }
 
-        // 5. Bottom area
+        // ── Bottom bar ──
         if (state.gameMode == GameMode.ANALYZE) {
             AnalysisFooter(state, onAnalysisPrev, onAnalysisNext)
         } else {
-            PlayFooter(state, onPass, onResign, onTerritoryEstimate, onUndo, onConfirmMove, onCancelMove)
+            PlayButtonRow(state, onNewGame, onPass, onResign, onTerritoryEstimate, onUndo)
         }
-
-        Spacer(Modifier.height(6.dp))
     }
 
     // ── Dialogs ──
@@ -231,46 +222,32 @@ fun GameScreen(
 // ──────────────────────────────────────────────
 // ── New Footer composables ──
 @Composable
-private fun GameInfoChip(label: String, captured: Int, isCurrent: Boolean) {
+private fun PlayButtonRow(
+    state: GameState, onNewGame: () -> Unit, onPass: () -> Unit, onResign: () -> Unit,
+    onTerritoryEstimate: () -> Unit, onUndo: () -> Unit
+) {
     val colors = BadukNextColors
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(modifier = Modifier.size(14.dp).clip(CircleShape).background(
-            if (label == "Black") colors.BlackStone else colors.WhiteStone
-        ).then(
-            if (label == "White") Modifier.border(0.5.dp, colors.WhiteStoneBorder, CircleShape) else Modifier
-        ))
-        Spacer(Modifier.width(6.dp))
-        Text("\u00D7$captured", color = if (isCurrent) colors.Accent else colors.TextSecondary, fontSize = 13.sp, fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal)
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly
+    ) {
+        IconBtn("\u2795", "New", onClick = onNewGame)
+        IconBtn("\u21BA", "Undo", onClick = onUndo, enabled = state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() >= 2)
+        IconBtn("\u23ED", "Pass", onClick = onPass, enabled = state.isPlayerTurn && !state.isThinking && state.isEngineReady)
+        IconBtn("\u2691", "Resign", onClick = onResign, enabled = state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() > 0)
+        IconBtn("\u25CE", "Score", onClick = onTerritoryEstimate, enabled = state.isEngineReady)
     }
 }
 
 @Composable
-private fun PlayFooter(
-    state: GameState, onPass: () -> Unit, onResign: () -> Unit,
-    onTerritoryEstimate: () -> Unit, onUndo: () -> Unit,
-    onConfirmMove: () -> Unit, onCancelMove: () -> Unit
-) {
+private fun IconBtn(icon: String, label: String, onClick: () -> Unit, enabled: Boolean = true) {
     val colors = BadukNextColors
-    Box(modifier = Modifier.height(36.dp).fillMaxWidth().padding(horizontal = 10.dp)) {
-        if (state.placementMode == PlacementMode.CONFIRM && state.confirmMoveQueued != null) {
-            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(colors.Surface).border(1.dp, colors.Divider, RoundedCornerShape(8.dp)).clickable(onClick = onCancelMove).padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                    Text("Cancel", color = colors.TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                }
-                Box(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(colors.Accent).clickable(onClick = onConfirmMove).padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                    Text("Place Here", color = colors.TextOnAccent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    Column(
+        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = enabled, onClick = onClick).padding(horizontal = 6.dp, vertical = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        PlayButton("Territory", onTerritoryEstimate, Modifier.weight(1f), state.isEngineReady)
-        PlayButton("Undo", onUndo, Modifier.weight(1f), state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() >= 2)
-        PlayButton("Pass", onPass, Modifier.weight(1f), state.isPlayerTurn && !state.isThinking && state.isEngineReady)
-        PlayButton("Resign", onResign, Modifier.weight(1f), state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() > 0, isDanger = true)
+        Text(icon, color = if (enabled) colors.TextPrimary else colors.ButtonDisabledText, fontSize = 18.sp)
+        Text(label, color = if (enabled) colors.TextSecondary else colors.ButtonDisabledText, fontSize = 9.sp)
     }
 }
 
@@ -425,38 +402,6 @@ private fun CaptureChip(
 
 // ──────────────────────────────────────────────
 // Play Button
-// ──────────────────────────────────────────────
-@Composable
-private fun PlayButton(
-    text: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    isDanger: Boolean = false
-) {
-    val colors = BadukNextColors
-    val bg = when {
-        !enabled -> colors.ButtonDisabled
-        isDanger -> colors.Danger
-        else -> colors.Accent
-    }
-    val txtColor = if (enabled) colors.TextOnAccent else colors.ButtonDisabledText
-
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .shadow(if (enabled) 1.dp else 0.dp, RoundedCornerShape(8.dp))
-            .background(bg)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 12.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(text, color = txtColor, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-// ──────────────────────────────────────────────
-// Dialogs
 // ──────────────────────────────────────────────
 @Composable
 private fun NewGameDialog(
