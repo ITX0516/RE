@@ -45,16 +45,8 @@ jobs:
           rm -rvf app/src/main/assets/models
           echo "=== Assets after cleanup ==="
           du -sh app/src/main/assets/*/ 2>/dev/null || echo "no subdirs"
-          echo "=== jniLibs before cleanup ==="
-          find app/src/main/jniLibs -name "*.so" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}' | sort -rh
-          # Remove everything except libc++_shared (CPU-only doesn't need QNN/SNPE/Hexagon)
-          find app/src/main/jniLibs -name "*.so" ! -name "libc++_shared.so" -delete 2>/dev/null
-          echo "=== jniLibs after cleanup ==="
-          du -sh app/src/main/jniLibs/ 2>/dev/null || echo "empty"
-          # Strip debug symbols from remaining .so
-          find app/src/main -name "*.so" -exec sh -c 'ls -lh "$1" && llvm-objcopy --strip-all "$1" "$1.strip" 2>/dev/null && mv "$1.strip" "$1" && echo "stripped: $1"' _ {} \; 2>/dev/null || echo "strip not available"
-          echo "=== Final .so sizes ==="
-          find app/src/main -name "*.so" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}'
+          echo "=== .so sizes ==="
+          find app/src/main -name "*.so" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}' | sort -rh
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
