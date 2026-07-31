@@ -356,20 +356,21 @@ class KataGoEngine(private val context: Context) {
     suspend fun analyzePosition(maxVisits: Int = 300): AnalyzeResult? = withContext(Dispatchers.IO) {
         try {
             responseQueue.clear()
-            // Try kata-analyze with small maxVisits for speed
-            sendCommand("kata-analyze ownership true maxVisits $maxVisits")
-            val raw = waitForResponse(30000)
+            // Try kata-analyze with positional params (moves=true, ownership=true)
+            sendCommand("kata-analyze true true")
+            val raw = waitForResponse(15000)
             if (raw.isBlank()) {
-                AppLogger.e(TAG, "kata-analyze: empty response after timeout")
+                AppLogger.e(TAG, "kata-analyze: empty response")
                 return@withContext null
             }
             if (raw.trimStart().startsWith("?")) {
-                AppLogger.e(TAG, "kata-analyze not supported: $raw")
-                return@withContext null
+                AppLogger.e(TAG, "kata-analyze not supported, fallback to genmove: $raw")
+                val fallback = analyzeViaGenmove()
+                return@withContext fallback
             }
             val gtp = parseGtpResponse(raw)
             if (gtp == null) {
-                AppLogger.e(TAG, "kata-analyze: parseGtpResponse failed, raw=[${raw.take(200)}]")
+                AppLogger.e(TAG, "kata-analyze: parse failed, raw=[${raw.take(200)}]")
                 return@withContext null
             }
             val json = JSONObject(gtp)
@@ -406,6 +407,50 @@ class KataGoEngine(private val context: Context) {
             AnalyzeResult(winrate, scoreLead, candidates, ownership)
         } catch (e: Exception) {
             AppLogger.e(TAG, "kata-analyze error", e)
+            null
+        }
+    }
+
+    /**
+     * Fallback analysis using genmove + undo.
+     * Older KataGo versions don't support kata-analyze but do include
+     * analysis info in genmove comments. We genmove to get evaluation,
+     * parse the winrate/score from the comment, then undo to revert.
+     */
+    private suspend fun analyzeViaGenmove(): AnalyzeResult? {
+        return try {
+            // Current player (engine side) — we don't know whose turn it is,
+            // so try both colors. Use the one that returns analysis.
+            for (color in listOf("black", "white")) {
+                responseQueue.clear()
+                sendCommand("genmove $color")
+                val response = waitForResponse(30000)
+                if (response.isBlank()) continue
+
+                // Extract the move and comment: "= D4 (winrate 0.53 scoreLead 2.5)"
+                val move = parseGtpResponse(response) ?: continue
+                val winrate = Regex("winrate\\s+([\\d.]+)").find(move)?.groupValues?.get(1)?.toDouble()
+                val scoreLead = Regex("scoreLead\\s+([-\\d.]+)").find(move)?.groupValues?.get(1)?.toDouble()
+
+                if (winrate != null) {
+                    AppLogger.i(TAG, "genmove analysis: move=$move winrate=$winrate scoreLead=$scoreLead")
+
+                    // Undo the genmove to revert board state
+                    responseQueue.clear()
+                    sendCommand("undo")
+                    waitForResponse(5000)
+
+                    return AnalyzeResult(
+                        winrate = winrate,
+                        scoreLead = scoreLead ?: 0.0,
+                        moves = emptyList(),
+                        ownership = null
+                    )
+                }
+            }
+            null
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "genmove fallback analysis failed", e)
             null
         }
     }
