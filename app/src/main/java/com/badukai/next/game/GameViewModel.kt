@@ -386,6 +386,9 @@ class GameViewModel : ViewModel() {
                 val aiColor = s.currentPlayer
                 val move = e.generateMove(aiColor.toGtp())
                 withContext(Dispatchers.Main) { handleAiMove(move, aiColor) }
+            } catch (ex: kotlinx.coroutines.CancellationException) {
+                // Coroutine cancelled (e.g. new game started) — not a real error
+                AppLogger.d(TAG, "AI move coroutine cancelled")
             } catch (ex: Exception) {
                 AppLogger.e(TAG, "AI move error", ex)
                 _state.value = _state.value.copy(isThinking = false, gameMessage = "AI error: ${ex.message}")
@@ -437,7 +440,8 @@ class GameViewModel : ViewModel() {
                     )
                     requestAnalysis()  // after state update → correct perspective
                 } else {
-                    _state.value = _state.value.copy(gameMessage = "AI error")
+                    AppLogger.e(TAG, "AI returned unparseable move: [$move]")
+                    _state.value = _state.value.copy(gameMessage = "AI error (move: $move)")
                 }
             }
         }
@@ -541,7 +545,8 @@ class GameViewModel : ViewModel() {
                 _state.value = _state.value.copy(territoryResult = score ?: "No result")
             } else {
                 // Compute heuristic territory estimate (kata-analyze ownership not available on this engine)
-                val (blackTerr, whiteTerr) = estimateTerritoryHeuristic(s.board)
+                val ownership = computeHeuristicOwnership(s.board)
+                val (blackTerr, whiteTerr) = countTerritoryFromOwnership(ownership, s.boardSize)
                 val blackScore = blackTerr + s.board.getCapturedWhite().toFloat()
                 val whiteScore = whiteTerr + s.board.getCapturedBlack().toFloat() + s.komi
                 val diff = blackScore - whiteScore
@@ -552,6 +557,7 @@ class GameViewModel : ViewModel() {
                     val bw = "%.1f".format((1f - s.winrate) * 100f)
                     val ww = "%.1f".format(s.winrate * 100f)
                     _state.value = _state.value.copy(
+                        ownership = ownership,
                         territoryResult = "Win rate: B $bw% / W $ww%\n$scoreLine"
                     )
                 } else {
@@ -562,12 +568,14 @@ class GameViewModel : ViewModel() {
                         _state.value = _state.value.copy(
                             winrate = result.winrate.toFloat(),
                             scoreLead = result.scoreLead.toFloat(),
+                            ownership = ownership,
                             territoryResult = "Win rate: B $bw% / W $ww%\n$scoreLine"
                         )
                     } else {
                         val err = engine?.lastAnalysisError ?: ""
                         _state.value = _state.value.copy(
                             analysisError = err,
+                            ownership = ownership,
                             territoryResult = "Win rate unavailable\n$scoreLine"
                         )
                     }
@@ -580,7 +588,11 @@ class GameViewModel : ViewModel() {
      * Heuristic territory estimate using nearest-stone (Voronoi) method.
      * Returns (blackTerritory, whiteTerritory) in points.
      */
-    private fun estimateTerritoryHeuristic(board: GoBoard): Pair<Float, Float> {
+    /**
+     * Heuristic ownership (Voronoi nearest-stone): +1 = black, -1 = white, 0 = neutral.
+     * Matches the kata-analyze ownership format so BoardView can color territory.
+     */
+    private fun computeHeuristicOwnership(board: GoBoard): List<Float> {
         val size = board.size
         val blackStones = mutableListOf<Point>()
         val whiteStones = mutableListOf<Point>()
@@ -591,20 +603,37 @@ class GameViewModel : ViewModel() {
                 else -> {}
             }
         }
-        if (blackStones.isEmpty() || whiteStones.isEmpty()) return Pair(0f, 0f)
+        val ownership = MutableList(size * size) { 0f }
+        if (blackStones.isEmpty() && whiteStones.isEmpty()) return ownership
 
-        var blackTerr = 0f
-        var whiteTerr = 0f
         for (y in 0 until size) for (x in 0 until size) {
-            if (board.get(x, y) != Intersection.EMPTY) continue
+            val idx = y * size + x
+            when (board.get(x, y)) {
+                Intersection.BLACK -> { ownership[idx] = 1f; continue }
+                Intersection.WHITE -> { ownership[idx] = -1f; continue }
+                else -> {}
+            }
             val minB = blackStones.minOfOrNull { kotlin.math.abs(it.x - x) + kotlin.math.abs(it.y - y) } ?: 999
             val minW = whiteStones.minOfOrNull { kotlin.math.abs(it.x - x) + kotlin.math.abs(it.y - y) } ?: 999
-            when {
-                minB < minW -> blackTerr++
-                minW < minB -> whiteTerr++
+            ownership[idx] = when {
+                minB < minW -> 1f
+                minW < minB -> -1f
+                else -> 0f
             }
         }
-        return Pair(blackTerr, whiteTerr)
+        return ownership
+    }
+
+    private fun countTerritoryFromOwnership(ownership: List<Float>, size: Int): Pair<Float, Float> {
+        var black = 0f
+        var white = 0f
+        for (i in 0 until size * size) {
+            when {
+                ownership.getOrElse(i) { 0f } > 0.5f -> black++
+                ownership.getOrElse(i) { 0f } < -0.5f -> white++
+            }
+        }
+        return Pair(black, white)
     }
 
     fun toggleCoordinates() {

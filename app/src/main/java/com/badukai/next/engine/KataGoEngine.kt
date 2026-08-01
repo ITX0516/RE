@@ -372,18 +372,11 @@ class KataGoEngine(private val context: Context) {
         commandMutex.withLock {
             lastAnalysisError = ""
 
+            // Only lz-analyze — verified working on this engine. Skip dead fallbacks
+            // to avoid holding the mutex too long (which can stall genmove).
             val lz = tryLzAnalyze()
             if (lz != null) return@withLock lz
             if (lastAnalysisError.isEmpty()) lastAnalysisError = "lz-analyze failed"
-
-            // Fallbacks (unlikely to work on this engine, but kept)
-            val kata = analyzeViaKataAnalyze(maxVisits)
-            if (kata != null) return@withLock kata
-            lastAnalysisError += " | kata-analyze failed"
-
-            val gen = analyzeViaKataGenmove(color, maxVisits)
-            if (gen != null) return@withLock gen
-            lastAnalysisError += " | kata-genmove failed"
 
             return@withLock null
         }
@@ -517,14 +510,15 @@ class KataGoEngine(private val context: Context) {
         return try {
             inStreamMode = true
             responseQueue.clear()
-            sendCommand("lz-analyze 100")
+            // interval 10cs = 100ms, first result comes fast
+            sendCommand("lz-analyze 10")
 
             // lz-analyze emits "= " first, then lines like:
             // "info move E5 visits 4812 winrate 4492 ... info move F5 ..."
-            // Read lines until we find an info line.
+            // Read lines until we find an info line (give up fast to not stall genmove).
             var infoLine: String? = null
-            for (i in 0 until 6) {
-                val line = waitForResponse(6000)
+            for (i in 0 until 3) {
+                val line = waitForResponse(4000)
                 if (line.isBlank()) break
                 if (line.contains("info move")) {
                     infoLine = line
@@ -534,7 +528,7 @@ class KataGoEngine(private val context: Context) {
 
             inStreamMode = false
             sendCommand("protocol_version")
-            waitForResponse(2000)
+            waitForResponse(1500)
             while (responseQueue.poll() != null) {}
 
             if (infoLine == null) {

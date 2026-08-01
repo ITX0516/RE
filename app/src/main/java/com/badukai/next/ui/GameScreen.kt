@@ -1,10 +1,14 @@
 package com.badukai.next.ui
 
+import android.graphics.Paint
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
@@ -282,7 +286,7 @@ private fun PlayButtonRow(
 ) {
     val colors = BadukNextColors
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
         IconBtn("\u2795", "New", onClick = onNewGame)
@@ -297,11 +301,11 @@ private fun PlayButtonRow(
 private fun IconBtn(icon: String, label: String, onClick: () -> Unit, enabled: Boolean = true) {
     val colors = BadukNextColors
     Column(
-        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = enabled, onClick = onClick).padding(horizontal = 6.dp, vertical = 2.dp),
+        modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(enabled = enabled, onClick = onClick).padding(horizontal = 10.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(icon, color = if (enabled) colors.TextPrimary else colors.ButtonDisabledText, fontSize = 22.sp)
-        Text(label, color = if (enabled) colors.TextSecondary else colors.ButtonDisabledText, fontSize = 11.sp)
+        Text(icon, color = if (enabled) colors.TextPrimary else colors.ButtonDisabledText, fontSize = 30.sp)
+        Text(label, color = if (enabled) colors.TextSecondary else colors.ButtonDisabledText, fontSize = 12.sp)
     }
 }
 
@@ -415,7 +419,7 @@ private fun WinrateChartContent(winrateHistory: List<Float>, scoreLeadHistory: L
     }
 
     Canvas(modifier = Modifier.fillMaxSize().padding(6.dp)) {
-        val w = size.width; val h = size.height; val pad = 25f
+        val w = size.width; val h = size.height; val pad = 30f
         val cw = w - 2 * pad; val ch = h - 2 * pad
 
         // Grid
@@ -426,6 +430,32 @@ private fun WinrateChartContent(winrateHistory: List<Float>, scoreLeadHistory: L
         }
         drawLine(gridColor, start = Offset(pad, pad), end = Offset(pad, h - pad), strokeWidth = 1f)
         drawLine(gridColor, start = Offset(pad, h - pad), end = Offset(w - pad, h - pad), strokeWidth = 1f)
+
+        // Axis labels
+        val labelPaint = Paint().apply {
+            color = colors.TextSecondary.toArgb()
+            textSize = 9f
+            isAntiAlias = true
+        }
+        val totalMoves = if (chartType == "wr") winrateHistory.size else scoreLeadHistory.size
+        // Y-axis winrate % labels (0, 25, 50, 75, 100)
+        for (i in 0..4) {
+            val pct = (i * 25).toString()
+            val y = pad + ch * (1f - i / 4f)
+            drawIntoCanvas { c ->
+                c.nativeCanvas.drawText(pct, 4f, y + 3f, labelPaint)
+            }
+        }
+        // X-axis move number labels (1, N/2, N)
+        if (totalMoves > 1) {
+            listOf(0, totalMoves / 2, totalMoves - 1).forEach { idx ->
+                val x = pad + (idx.toFloat() / (totalMoves - 1)) * cw
+                val num = (idx + 1).toString()
+                drawIntoCanvas { c ->
+                    c.nativeCanvas.drawText(num, x - 4f, h - 4f, labelPaint)
+                }
+            }
+        }
 
         when (chartType) {
             "perf" -> {
