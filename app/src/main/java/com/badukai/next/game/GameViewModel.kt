@@ -78,7 +78,8 @@ data class GameState(
     val showEyeOverlay: Boolean = false,
     val playedMovePoints: List<Pair<Int,Int>> = emptyList(),
     val moveQualities: List<Int> = emptyList(),
-    val gameResult: GameResult? = null
+    val gameResult: GameResult? = null,
+    val analysisError: String = ""
 )
 
 enum class GameResult(val label: String) {
@@ -290,7 +291,10 @@ class GameViewModel : ViewModel() {
         val color = _state.value.currentPlayer.toGtp()
         viewModelScope.launch {
             val result = engine?.analyzePosition(color, 100) // lower visits for speed
-            if (result == null) return@launch
+            if (result == null) {
+                _state.value = _state.value.copy(analysisError = engine?.lastAnalysisError ?: "analysis failed")
+                return@launch
+            }
             val s = _state.value
             val candidates = result.moves.take(10).map { cm ->
                 val coord = if (cm.x >= 0 && cm.y >= 0) {
@@ -552,7 +556,11 @@ class GameViewModel : ViewModel() {
                         )
                     } else {
                         val stoneCount = s.board.getMoveCount()
-                        _state.value = _state.value.copy(territoryResult = "Analysis unavailable — check engine supports kata-analyze\nCaptures: B=${s.capturedByBlack} W=${s.capturedByWhite}\nStone count: $stoneCount")
+                        val err = engine?.lastAnalysisError ?: ""
+                        _state.value = _state.value.copy(
+                            analysisError = err,
+                            territoryResult = "Analysis failed:\n$err\nCaptures: B=${s.capturedByBlack} W=${s.capturedByWhite}"
+                        )
                     }
                 }
             }

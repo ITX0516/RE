@@ -48,6 +48,7 @@ class KataGoEngine(private val context: Context) {
     private val isRunning = AtomicBoolean(false)
     private val commandMutex = Mutex()
     @Volatile private var inStreamMode = false
+    @Volatile var lastAnalysisError: String = ""
 
     enum class Model(val displayName: String, val fileName: String, val description: String) {
         SIX_B("6b", ModelManager.MODEL_FILENAME, "Efficient 6-block KataGo model")
@@ -368,13 +369,19 @@ class KataGoEngine(private val context: Context) {
      */
     suspend fun analyzePosition(color: String = "black", maxVisits: Int = 100): AnalyzeResult? = withContext(Dispatchers.IO) {
         commandMutex.withLock {
+            lastAnalysisError = ""
             val gen = analyzeViaKataGenmove(color, maxVisits)
             if (gen != null) return@withLock gen
+            if (lastAnalysisError.isEmpty()) lastAnalysisError = "kata-genmove failed"
 
             val kata = analyzeViaKataAnalyze(maxVisits)
             if (kata != null) return@withLock kata
+            lastAnalysisError += " | kata-analyze failed"
 
-            return@withLock tryLzAnalyze()
+            val lz = tryLzAnalyze()
+            if (lz != null) return@withLock lz
+            lastAnalysisError += " | lz-analyze failed"
+            return@withLock null
         }
     }
 
@@ -389,10 +396,12 @@ class KataGoEngine(private val context: Context) {
             val raw = waitForResponse(30000)
 
             if (raw.isBlank()) {
+                lastAnalysisError = "kata-genmove empty response"
                 AppLogger.e(TAG, "kata-genmove: empty response")
                 return null
             }
             if (raw.trimStart().startsWith("?")) {
+                lastAnalysisError = "kata-genmove unsupported: ${raw.trim().take(80)}"
                 AppLogger.e(TAG, "kata-genmove unsupported: ${raw.take(120)}")
                 return null // do NOT undo — no move was played
             }
@@ -423,10 +432,12 @@ class KataGoEngine(private val context: Context) {
             while (responseQueue.poll() != null) {}
 
             if (raw.isBlank()) {
+                lastAnalysisError += " | kata-analyze empty response"
                 AppLogger.e(TAG, "kata-analyze: empty response")
                 return null
             }
             if (raw.trimStart().startsWith("?")) {
+                lastAnalysisError += " | kata-analyze unsupported: ${raw.trim().take(80)}"
                 AppLogger.e(TAG, "kata-analyze unsupported: ${raw.take(120)}")
                 return null
             }
@@ -506,6 +517,7 @@ class KataGoEngine(private val context: Context) {
             while (responseQueue.poll() != null) {}
 
             if (raw.isBlank() || raw.trimStart().startsWith("?")) {
+                lastAnalysisError += " | lz-analyze unsupported: ${raw.trim().take(80)}"
                 AppLogger.e(TAG, "lz-analyze also unsupported: ${raw.take(120)}")
                 return null
             }
