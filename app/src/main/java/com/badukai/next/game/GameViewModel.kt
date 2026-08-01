@@ -283,10 +283,11 @@ class GameViewModel : ViewModel() {
             gameMessage = if (isPlayerTurn) "Your turn" else "AI thinking..."
         )
 
-        requestAnalysis()
         viewModelScope.launch {
+            // Sync engine with the player's move
             engine?.playMove(color.toGtp(), point.toGtp(currentState.boardSize))
             if (!isPlayerTurn && !board.isGameOver) {
+                // AI responds; analysis runs once after AI move (in handleAiMove)
                 requestAiMove()
             }
         }
@@ -502,7 +503,14 @@ class GameViewModel : ViewModel() {
         if (s.isThinking || s.board.getMoveCount() < 2) return
         s.board.undo(); s.board.undo()
         recorder.removeLast(); recorder.removeLast()
-        viewModelScope.launch { engine?.undo(); engine?.undo() }
+        // Trim analysis history (one analysis per round = 2 moves)
+        val newWrHistory = s.winrateHistory.dropLast(1)
+        val newSlHistory = s.scoreLeadHistory.dropLast(1)
+        viewModelScope.launch {
+            engine?.undo(); engine?.undo()
+            // Re-analyze the post-undo position so winrate refreshes
+            requestAnalysis()
+        }
         val lastMove = s.board.getLastMove()
         _state.value = s.copy(
             currentPlayer = s.playerColor, isPlayerTurn = true,
@@ -510,7 +518,9 @@ class GameViewModel : ViewModel() {
             capturedByBlack = s.board.getCapturedWhite(),
             capturedByWhite = s.board.getCapturedBlack(),
             gameMessage = "Undone. Your turn",
-            analysisMoves = recorder.rebuildAnalysisMoves()
+            analysisMoves = recorder.rebuildAnalysisMoves(),
+            winrateHistory = newWrHistory,
+            scoreLeadHistory = newSlHistory
         )
     }
 
