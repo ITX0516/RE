@@ -365,19 +365,21 @@ class KataGoEngine(private val context: Context) {
 
     /**
      * Request KataGo analysis for current position.
-     * Priority: kata-analyze (streaming, supported) → lz-analyze → kata-genmove (fallback).
+     * Verified locally: kata-analyze produces no output on this engine,
+     * so lz-analyze is PRIMARY (Leela Zero info format works reliably).
      */
     suspend fun analyzePosition(color: String = "black", maxVisits: Int = 100): AnalyzeResult? = withContext(Dispatchers.IO) {
         commandMutex.withLock {
             lastAnalysisError = ""
 
-            val kata = analyzeViaKataAnalyze(maxVisits)
-            if (kata != null) return@withLock kata
-            if (lastAnalysisError.isEmpty()) lastAnalysisError = "kata-analyze failed"
-
             val lz = tryLzAnalyze()
             if (lz != null) return@withLock lz
-            lastAnalysisError += " | lz-analyze failed"
+            if (lastAnalysisError.isEmpty()) lastAnalysisError = "lz-analyze failed"
+
+            // Fallbacks (unlikely to work on this engine, but kept)
+            val kata = analyzeViaKataAnalyze(maxVisits)
+            if (kata != null) return@withLock kata
+            lastAnalysisError += " | kata-analyze failed"
 
             val gen = analyzeViaKataGenmove(color, maxVisits)
             if (gen != null) return@withLock gen
@@ -516,54 +518,71 @@ class KataGoEngine(private val context: Context) {
             inStreamMode = true
             responseQueue.clear()
             sendCommand("lz-analyze 100")
-            val raw = waitForResponse(15000)
+
+            // lz-analyze emits "= " first, then lines like:
+            // "info move E5 visits 4812 winrate 4492 ... info move F5 ..."
+            // Read lines until we find an info line.
+            var infoLine: String? = null
+            for (i in 0 until 6) {
+                val line = waitForResponse(6000)
+                if (line.isBlank()) break
+                if (line.contains("info move")) {
+                    infoLine = line
+                    break
+                }
+            }
+
             inStreamMode = false
             sendCommand("protocol_version")
             waitForResponse(2000)
             while (responseQueue.poll() != null) {}
 
-            if (raw.isBlank() || raw.trimStart().startsWith("?")) {
-                lastAnalysisError += " | lz-analyze unsupported: ${raw.trim().take(80)}"
-                AppLogger.e(TAG, "lz-analyze also unsupported: ${raw.take(120)}")
+            if (infoLine == null) {
+                lastAnalysisError += " | lz-analyze no info line"
+                AppLogger.e(TAG, "lz-analyze: no info line found")
                 return null
             }
-            // Format: = <moveNum> <visits> <winratePct> <scoreLead> [coord:visits:wr:score]...
-            val clean = raw.trim().removePrefix("=").trim()
-            val parts = clean.split(Regex("\\s+"))
-            if (parts.size < 5) {
-                lastAnalysisError += " | lz-analyze parse fail: $clean"
-                AppLogger.e(TAG, "lz-analyze parse fail: $clean")
-                return null
-            }
-            val winratePct = parts[2].toDoubleOrNull() ?: run {
-                lastAnalysisError += " | lz-analyze bad winrate in: $clean"
-                return null
-            }
-            val scoreLead = parts[3].toDoubleOrNull() ?: 0.0
-            val winrate = winratePct / 100.0
-
-            val candidates = mutableListOf<CandidateMove>()
-            for (i in 4 until parts.size) {
-                val sub = parts[i].split(":")
-                if (sub.size >= 2) {
-                    val cm = CandidateMove.fromGtp(sub[0], 19)
-                    if (cm != null) {
-                        candidates.add(cm.copy(
-                            winRate = sub.getOrNull(2)?.toFloatOrNull() ?: 0f,
-                            scoreLead = sub.getOrNull(3)?.toFloatOrNull() ?: 0f,
-                            visits = sub.getOrNull(1)?.toIntOrNull() ?: 0,
-                            isBest = i == 4
-                        ))
-                    }
-                }
-            }
-            AppLogger.i(TAG, "lz-analyze success: wr=$winrate lead=$scoreLead")
-            AnalyzeResult(winrate, scoreLead, candidates, null)
+            parseLzInfo(infoLine)
         } catch (e: Exception) {
             inStreamMode = false
+            lastAnalysisError += " | lz-analyze error: ${e.message}"
             AppLogger.e(TAG, "lz-analyze error", e)
             null
         }
+    }
+
+    /**
+     * Parse Leela Zero "info" format from lz-analyze:
+     * "info move E5 visits 4812 winrate 4492 ... info move F5 visits ..."
+     * winrate is in THOUSANDTHS (4492 = 44.92%).
+     */
+    private fun parseLzInfo(line: String): AnalyzeResult? {
+        val regex = Regex("info move (\\S+) visits (\\d+) winrate (-?\\d+)")
+        val matches = regex.findAll(line)
+        val candidates = mutableListOf<CandidateMove>()
+        var bestWinrate = 0.0
+
+        for (m in matches) {
+            val coord = m.groupValues[1]
+            val visits = m.groupValues[2].toIntOrNull() ?: 0
+            val wrThousandths = m.groupValues[3].toDoubleOrNull() ?: continue
+            val winrate = wrThousandths / 1000.0
+            val cm = CandidateMove.fromGtp(coord, 19) ?: continue
+            candidates.add(cm.copy(
+                winRate = winrate.toFloat(),
+                visits = visits,
+                isBest = candidates.isEmpty()
+            ))
+            if (candidates.size == 1) bestWinrate = winrate
+        }
+
+        if (candidates.isEmpty()) {
+            lastAnalysisError += " | lz-analyze parse fail: ${line.take(120)}"
+            AppLogger.e(TAG, "lz-analyze: no moves parsed from [$line]")
+            return null
+        }
+        AppLogger.i(TAG, "lz-analyze success: wr=$bestWinrate candidates=${candidates.size}")
+        return AnalyzeResult(winrate = bestWinrate, scoreLead = 0.0, moves = candidates, ownership = null)
     }
 
     suspend fun playMove(color: String, move: String): Boolean = withContext(Dispatchers.IO) {

@@ -316,7 +316,9 @@ class GameViewModel : ViewModel() {
             val newScoreHistory = s.scoreLeadHistory + result.scoreLead.toFloat()
 
             _state.value = s.copy(
-                winrate = result.winrate.toFloat(),
+                // state.winrate = White's winrate (winrate bar expects White perspective)
+                winrate = if (s.currentPlayer == StoneColor.WHITE)
+                    result.winrate.toFloat() else 1f - result.winrate.toFloat(),
                 scoreLead = result.scoreLead.toFloat(),
                 ownership = result.ownership?.map { it.toFloat() },
                 candidateInfo = candidates,
@@ -533,39 +535,73 @@ class GameViewModel : ViewModel() {
                 val score = engine?.getFinalScore()
                 _state.value = _state.value.copy(territoryResult = score ?: "No result")
             } else {
-                // Use latest analysis if available
+                // Compute heuristic territory estimate (kata-analyze ownership not available on this engine)
+                val (blackTerr, whiteTerr) = estimateTerritoryHeuristic(s.board)
+                val blackScore = blackTerr + s.board.getCapturedWhite().toFloat()
+                val whiteScore = whiteTerr + s.board.getCapturedBlack().toFloat() + s.komi
+                val diff = blackScore - whiteScore
+                val scoreLine = if (diff >= 0) "Heuristic: B+${"%.1f".format(diff)}" else "Heuristic: W+${"%.1f".format(-diff)}"
+
+                // Try to get winrate from lz-analyze
                 if (s.winrate > 0) {
                     val bw = "%.1f".format((1f - s.winrate) * 100f)
                     val ww = "%.1f".format(s.winrate * 100f)
-                    val lead = "%.1f".format(s.scoreLead)
-                    val side = if (s.scoreLead >= 0) "B" else "W"
                     _state.value = _state.value.copy(
-                        territoryResult = "Win rate: B $bw% / W $ww%\nScore: $side+$lead"
+                        territoryResult = "Win rate: B $bw% / W $ww%\n$scoreLine"
                     )
                 } else {
                     val result = engine?.analyzePosition(s.currentPlayer.toGtp(), 300)
                     if (result != null) {
                         val bw = "%.1f".format((1f - result.winrate.toFloat()) * 100f)
                         val ww = "%.1f".format(result.winrate.toFloat() * 100f)
-                        val lead = "%.1f".format(result.scoreLead.toFloat())
-                        val side = if (result.scoreLead >= 0) "B" else "W"
                         _state.value = _state.value.copy(
                             winrate = result.winrate.toFloat(),
                             scoreLead = result.scoreLead.toFloat(),
-                            territoryResult = "Win rate: B $bw% / W $ww%\nScore: $side+$lead"
+                            territoryResult = "Win rate: B $bw% / W $ww%\n$scoreLine"
                         )
                     } else {
-                        val stoneCount = s.board.getMoveCount()
                         val err = engine?.lastAnalysisError ?: ""
                         _state.value = _state.value.copy(
                             analysisError = err,
-                            territoryResult = "Analysis failed:\n$err\nCaptures: B=${s.capturedByBlack} W=${s.capturedByWhite}"
+                            territoryResult = "Win rate unavailable\n$scoreLine"
                         )
                     }
                 }
             }
         }
     }
+
+    /**
+     * Heuristic territory estimate using nearest-stone (Voronoi) method.
+     * Returns (blackTerritory, whiteTerritory) in points.
+     */
+    private fun estimateTerritoryHeuristic(board: GoBoard): Pair<Float, Float> {
+        val size = board.size
+        val blackStones = mutableListOf<Point>()
+        val whiteStones = mutableListOf<Point>()
+        for (y in 0 until size) for (x in 0 until size) {
+            when (board.get(x, y)) {
+                Intersection.BLACK -> blackStones.add(Point(x, y))
+                Intersection.WHITE -> whiteStones.add(Point(x, y))
+                else -> {}
+            }
+        }
+        if (blackStones.isEmpty() || whiteStones.isEmpty()) return Pair(0f, 0f)
+
+        var blackTerr = 0f
+        var whiteTerr = 0f
+        for (y in 0 until size) for (x in 0 until size) {
+            if (board.get(x, y) != Intersection.EMPTY) continue
+            val minB = blackStones.minOfOrNull { kotlin.math.abs(it.x - x) + kotlin.math.abs(it.y - y) } ?: 999
+            val minW = whiteStones.minOfOrNull { kotlin.math.abs(it.x - x) + kotlin.math.abs(it.y - y) } ?: 999
+            when {
+                minB < minW -> blackTerr++
+                minW < minB -> whiteTerr++
+            }
+        }
+        return Pair(blackTerr, whiteTerr)
+    }
+
     fun toggleCoordinates() {
         val v = !_state.value.showCoordinates
         _state.value = _state.value.copy(showCoordinates = v)
