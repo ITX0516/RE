@@ -365,22 +365,24 @@ class KataGoEngine(private val context: Context) {
 
     /**
      * Request KataGo analysis for current position.
-     * Priority: kata-genmove (non-streaming) → kata-analyze (streaming) → lz-analyze.
+     * Priority: kata-analyze (streaming, supported) → lz-analyze → kata-genmove (fallback).
      */
     suspend fun analyzePosition(color: String = "black", maxVisits: Int = 100): AnalyzeResult? = withContext(Dispatchers.IO) {
         commandMutex.withLock {
             lastAnalysisError = ""
-            val gen = analyzeViaKataGenmove(color, maxVisits)
-            if (gen != null) return@withLock gen
-            if (lastAnalysisError.isEmpty()) lastAnalysisError = "kata-genmove failed"
 
             val kata = analyzeViaKataAnalyze(maxVisits)
             if (kata != null) return@withLock kata
-            lastAnalysisError += " | kata-analyze failed"
+            if (lastAnalysisError.isEmpty()) lastAnalysisError = "kata-analyze failed"
 
             val lz = tryLzAnalyze()
             if (lz != null) return@withLock lz
             lastAnalysisError += " | lz-analyze failed"
+
+            val gen = analyzeViaKataGenmove(color, maxVisits)
+            if (gen != null) return@withLock gen
+            lastAnalysisError += " | kata-genmove failed"
+
             return@withLock null
         }
     }
@@ -424,8 +426,10 @@ class KataGoEngine(private val context: Context) {
         return try {
             inStreamMode = true
             responseQueue.clear()
-            sendCommand("kata-analyze {maxVisits $maxVisits} {ownership true}")
-            val raw = waitForResponse(15000)
+            // Correct positional format: moves=true, ownership=true
+            // ({} block syntax is NOT accepted by this KataGo build)
+            sendCommand("kata-analyze true true")
+            val raw = waitForResponse(20000)
             inStreamMode = false
             sendCommand("protocol_version")
             waitForResponse(2000)
@@ -527,10 +531,14 @@ class KataGoEngine(private val context: Context) {
             val clean = raw.trim().removePrefix("=").trim()
             val parts = clean.split(Regex("\\s+"))
             if (parts.size < 5) {
+                lastAnalysisError += " | lz-analyze parse fail: $clean"
                 AppLogger.e(TAG, "lz-analyze parse fail: $clean")
                 return null
             }
-            val winratePct = parts[2].toDoubleOrNull() ?: return null
+            val winratePct = parts[2].toDoubleOrNull() ?: run {
+                lastAnalysisError += " | lz-analyze bad winrate in: $clean"
+                return null
+            }
             val scoreLead = parts[3].toDoubleOrNull() ?: 0.0
             val winrate = winratePct / 100.0
 
