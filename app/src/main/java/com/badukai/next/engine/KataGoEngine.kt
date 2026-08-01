@@ -454,16 +454,18 @@ class KataGoEngine(private val context: Context) {
      * Handles both "= D4 {json}" (same line) and "= D4\n{json}\n\n" (next line).
      */
     private fun parseKataJson(raw: String): AnalyzeResult? {
-        val gtp = parseGtpResponse(raw) ?: run {
-            AppLogger.e(TAG, "kata parse: no GTP response, raw=[${raw.take(200)}]")
+        if (raw.isBlank()) {
+            AppLogger.e(TAG, "kata parse: blank raw")
             return null
         }
-        val braceIdx = gtp.indexOf("{")
+        // Search the WHOLE raw response for the first '{' — handles both
+        // "= D4 {json}" (same line) and "= D4\n{json}\n" (JSON on next line).
+        val braceIdx = raw.indexOf("{")
         if (braceIdx < 0) {
-            AppLogger.e(TAG, "kata parse: no JSON found in [$gtp]")
+            AppLogger.e(TAG, "kata parse: no JSON found in [${raw.take(200)}]")
             return null
         }
-        val jsonText = gtp.substring(braceIdx)
+        val jsonText = raw.substring(braceIdx)
         val json = try { JSONObject(jsonText) } catch (e: Exception) {
             AppLogger.e(TAG, "kata JSON error: ${e.message} text=[${jsonText.take(200)}]")
             return null
