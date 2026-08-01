@@ -77,9 +77,9 @@ fun GoBoard(
                     stoneAnimScale.snapTo(0.6f)
                     stoneAnimScale.animateTo(1f, animationSpec = tween(200))
                 }
-                1 -> { // Drop
+                1 -> { // Drop — appears from below and rises onto the board
                     stoneAnimScale.snapTo(1f)
-                    stoneAnimOffset.snapTo(-cellSize * 0.5f)
+                    stoneAnimOffset.snapTo(cellSize * 0.6f)
                     stoneAnimOffset.animateTo(0f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))
                 }
                 2 -> { // None

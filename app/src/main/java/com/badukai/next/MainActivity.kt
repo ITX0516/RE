@@ -48,6 +48,7 @@ class MainActivity : ComponentActivity() {
                 onSetAnimation = viewModel::setStoneAnimation,
                 onAnalysisPrev = viewModel::analysisPrev,
                 onAnalysisNext = viewModel::analysisNext,
+                onAnalysisJump = viewModel::navigateToMove,
                 onConfirmMove = viewModel::confirmMove,
                 onCancelMove = viewModel::cancelMove,
                 onSetPlaceSound = viewModel::setPlaceSoundIndex,

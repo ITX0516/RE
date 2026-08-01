@@ -59,6 +59,7 @@ fun GameScreen(
     onSetGameMode: (GameMode) -> Unit,
     onSetPlacementMode: (PlacementMode) -> Unit,
     onAnalysisPrev: () -> Unit,
+    onAnalysisJump: (Int) -> Unit,
     onAnalysisNext: () -> Unit,
     onConfirmMove: () -> Unit,
     onCancelMove: () -> Unit,
@@ -71,7 +72,7 @@ fun GameScreen(
     val colors = BadukNextColors
 
     Column(
-        modifier = modifier.fillMaxSize().background(colors.Background),
+        modifier = modifier.fillMaxSize().background(colors.Background).padding(bottom = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // ── Top bar: mode toggle + status + settings ──
@@ -211,7 +212,7 @@ fun GameScreen(
         PlayButtonRow(state, onNewGame, onPass, onResign, onTerritoryEstimate, onUndo)
 
         // ── Analysis sub-tabs (both modes) ──
-        AnalysisFooter(state, onAnalysisPrev, onAnalysisNext)
+        AnalysisFooter(state, onAnalysisPrev, onAnalysisNext, onAnalysisJump)
     }
 
     // ── Dialogs ──
@@ -279,7 +280,7 @@ private fun IconBtn(icon: String, label: String, onClick: () -> Unit, enabled: B
 }
 
 @Composable
-private fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> Unit) {
+private fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> Unit, onJumpToMove: (Int) -> Unit) {
     val colors = BadukNextColors
     var selectedTab by remember { mutableStateOf(AnalysisTab.MOVE_TREE) }
 
@@ -316,7 +317,7 @@ private fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> U
         modifier = Modifier.fillMaxWidth().height(80.dp).padding(horizontal = 10.dp).clip(RoundedCornerShape(8.dp)).background(colors.Surface)
     ) {
         when (selectedTab) {
-            AnalysisTab.MOVE_TREE -> MoveTreeContent(state)
+            AnalysisTab.MOVE_TREE -> MoveTreeContent(state, onJumpToMove)
             AnalysisTab.CHART -> WinrateChartContent(state.winrateHistory, state.scoreLeadHistory)
             AnalysisTab.CANDIDATES -> CandidatesPlaceholder(state.candidateInfo)
         }
@@ -324,7 +325,7 @@ private fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> U
 }
 
 @Composable
-private fun MoveTreeContent(state: GameState) {
+private fun MoveTreeContent(state: GameState, onJumpToMove: (Int) -> Unit) {
     val colors = BadukNextColors
     if (state.analysisMoves.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -333,22 +334,23 @@ private fun MoveTreeContent(state: GameState) {
         return
     }
     val scrollState = rememberScrollState()
-    Box(Modifier.fillMaxSize().horizontalScroll(scrollState).padding(6.dp)) {
-        Column {
-            val perRow = 10
-            val rows = (state.analysisMoves.size + perRow - 1) / perRow
-            for (row in 0 until rows) {
-                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    val start = row * perRow
-                    val end = minOf(start + perRow, state.analysisMoves.size)
-                    for (idx in start until end) {
-                        val isSelected = idx == state.analysisMoveIndex - 1
-                        Box(Modifier.size(22.dp).clip(RoundedCornerShape(3.dp)).background(if (isSelected) colors.Accent else colors.SurfaceVariant).padding(1.dp), contentAlignment = Alignment.Center) {
-                            Text("${idx + 1}", fontSize = 9.sp, color = if (isSelected) colors.TextOnAccent else colors.TextSecondary, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
-                        }
-                    }
+    // Horizontal single-row scrollable move tree, left → right, clickable
+    Box(Modifier.fillMaxSize().horizontalScroll(scrollState).padding(horizontal = 6.dp), contentAlignment = Alignment.CenterStart) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            state.analysisMoves.forEachIndexed { idx, _ ->
+                val moveNum = idx + 1
+                val isSelected = idx == state.analysisMoveIndex - 1
+                Box(
+                    modifier = Modifier
+                        .size(width = 26.dp, height = 34.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (isSelected) colors.Accent else colors.SurfaceVariant)
+                        .clickable { onJumpToMove(idx + 1) }
+                        .padding(1.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("$moveNum", fontSize = 9.sp, color = if (isSelected) colors.TextOnAccent else colors.TextSecondary, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
                 }
-                Spacer(Modifier.height(2.dp))
             }
         }
     }

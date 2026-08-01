@@ -265,6 +265,7 @@ class GameViewModel : ViewModel() {
             lastMovePoint = point,
             capturedByBlack = board.getCapturedWhite(),
             capturedByWhite = board.getCapturedBlack(),
+            analysisMoves = recorder.rebuildAnalysisMoves(),
             gameMessage = if (isPlayerTurn) "Your turn" else "AI thinking..."
         )
 
@@ -354,7 +355,8 @@ class GameViewModel : ViewModel() {
                 recorder.recordMove(m)
                 _state.value = _state.value.copy(
                     currentPlayer = color.opposite(), isPlayerTurn = true,
-                    lastMovePoint = null, gameMessage = "AI passed. Your turn"
+                    lastMovePoint = null, gameMessage = "AI passed. Your turn",
+                    analysisMoves = recorder.rebuildAnalysisMoves()
                 )
                 if (s.board.isGameOver) handleGameEnd()
             }
@@ -362,7 +364,10 @@ class GameViewModel : ViewModel() {
                 val m = Move.Resign(color)
                 s.board.playMove(m)
                 recorder.recordMove(m)
-                _state.value = _state.value.copy(gameMessage = "AI resigned. You win!")
+                _state.value = _state.value.copy(
+                    gameMessage = "AI resigned. You win!",
+                    analysisMoves = recorder.rebuildAnalysisMoves()
+                )
             }
             else -> {
                 val pt = Point.fromGtp(move, s.boardSize)
@@ -377,7 +382,8 @@ class GameViewModel : ViewModel() {
                         lastMovePoint = pt,
                         capturedByBlack = s.board.getCapturedWhite(),
                         capturedByWhite = s.board.getCapturedBlack(),
-                        gameMessage = "Your turn"
+                        gameMessage = "Your turn",
+                        analysisMoves = recorder.rebuildAnalysisMoves()
                     )
                 } else {
                     _state.value = _state.value.copy(gameMessage = "AI error")
@@ -396,7 +402,8 @@ class GameViewModel : ViewModel() {
         if (s.board.isGameOver) { handleGameEnd(); return }
         _state.value = s.copy(
             currentPlayer = s.currentPlayer.opposite(), isPlayerTurn = false,
-            lastMovePoint = null, gameMessage = "You passed. AI thinking..."
+            lastMovePoint = null, gameMessage = "You passed. AI thinking...",
+            analysisMoves = recorder.rebuildAnalysisMoves()
         )
         requestAiMove()
     }
@@ -423,6 +430,7 @@ class GameViewModel : ViewModel() {
         val s = _state.value
         if (s.isThinking || s.board.getMoveCount() < 2) return
         s.board.undo(); s.board.undo()
+        recorder.removeLast(); recorder.removeLast()
         viewModelScope.launch { engine?.undo(); engine?.undo() }
         val lastMove = s.board.getLastMove()
         _state.value = s.copy(
@@ -430,7 +438,8 @@ class GameViewModel : ViewModel() {
             lastMovePoint = (lastMove as? Move.Stone)?.point,
             capturedByBlack = s.board.getCapturedWhite(),
             capturedByWhite = s.board.getCapturedBlack(),
-            gameMessage = "Undone. Your turn"
+            gameMessage = "Undone. Your turn",
+            analysisMoves = recorder.rebuildAnalysisMoves()
         )
     }
 

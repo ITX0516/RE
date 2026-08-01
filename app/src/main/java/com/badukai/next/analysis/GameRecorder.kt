@@ -33,6 +33,11 @@ class GameRecorder {
         return analysisMoves.toList()
     }
 
+    fun removeLast() {
+        if (moves.isNotEmpty()) moves.removeAt(moves.size - 1)
+        if (analysisMoves.isNotEmpty()) analysisMoves.removeAt(analysisMoves.size - 1)
+    }
+
     fun setAnalysisWinRate(moveIndex: Int, wr: Float, lead: Float) {
         if (moveIndex in moves.indices) {
             moves[moveIndex].winRate = wr

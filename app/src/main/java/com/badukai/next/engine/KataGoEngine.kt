@@ -5,6 +5,8 @@ import com.badukai.next.logging.AppLogger
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.badukai.next.analysis.AnalyzeResult
 import com.badukai.next.analysis.CandidateMove
 import com.badukai.next.game.Point
@@ -44,6 +46,7 @@ class KataGoEngine(private val context: Context) {
     private var errorReaderJob: Job? = null
     private val responseQueue = LinkedBlockingQueue<String>()
     private val isRunning = AtomicBoolean(false)
+    private val commandMutex = Mutex()
 
     enum class Model(val displayName: String, val fileName: String, val description: String) {
         SIX_B("6b", ModelManager.MODEL_FILENAME, "Efficient 6-block KataGo model")
@@ -336,16 +339,18 @@ class KataGoEngine(private val context: Context) {
     }
 
     suspend fun generateMove(color: String): String? = withContext(Dispatchers.IO) {
-        try {
-            responseQueue.clear()
-            sendCommand("genmove $color")
-            val response = waitForResponse(60000)
-            val move = parseGtpResponse(response)
-            AppLogger.i(TAG, "Generated move for $color: $move")
-            move
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error generating move", e)
-            null
+        commandMutex.withLock {
+            try {
+                responseQueue.clear()
+                sendCommand("genmove $color")
+                val response = waitForResponse(60000)
+                val move = parseGtpResponse(response)
+                AppLogger.i(TAG, "Generated move for $color: $move")
+                move
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Error generating move", e)
+                null
+            }
         }
     }
 
@@ -354,24 +359,25 @@ class KataGoEngine(private val context: Context) {
      * Sends kata-analyze, parses JSON response for winrate, scoreLead, candidates, ownership.
      */
     suspend fun analyzePosition(maxVisits: Int = 300): AnalyzeResult? = withContext(Dispatchers.IO) {
+        commandMutex.withLock {
         try {
             responseQueue.clear()
-            // Try kata-analyze with positional params (moves=true, ownership=true)
-            sendCommand("kata-analyze true true")
+            // kata-analyze: [moves=true, ownership=true, interval=100cs, maxVisits]
+            // With maxVisits set, the command terminates and sends a blank-line delimiter.
+            sendCommand("kata-analyze true true 100 0 0 $maxVisits")
             val raw = waitForResponse(15000)
             if (raw.isBlank()) {
                 AppLogger.e(TAG, "kata-analyze: empty response")
-                return@withContext null
+                return@withLock null
             }
             if (raw.trimStart().startsWith("?")) {
-                AppLogger.e(TAG, "kata-analyze not supported, fallback to genmove: $raw")
-                val fallback = analyzeViaGenmove()
-                return@withContext fallback
+                AppLogger.e(TAG, "kata-analyze not supported: ${raw.take(100)}")
+                return@withLock null
             }
             val gtp = parseGtpResponse(raw)
             if (gtp == null) {
                 AppLogger.e(TAG, "kata-analyze: parse failed, raw=[${raw.take(200)}]")
-                return@withContext null
+                return@withLock null
             }
             val json = JSONObject(gtp)
 
@@ -409,121 +415,90 @@ class KataGoEngine(private val context: Context) {
             AppLogger.e(TAG, "kata-analyze error", e)
             null
         }
-    }
-
-    /**
-     * Fallback analysis using genmove + undo.
-     * Older KataGo versions don't support kata-analyze but do include
-     * analysis info in genmove comments. We genmove to get evaluation,
-     * parse the winrate/score from the comment, then undo to revert.
-     */
-    private suspend fun analyzeViaGenmove(): AnalyzeResult? {
-        return try {
-            // Current player (engine side) — we don't know whose turn it is,
-            // so try both colors. Use the one that returns analysis.
-            for (color in listOf("black", "white")) {
-                responseQueue.clear()
-                sendCommand("genmove $color")
-                val response = waitForResponse(30000)
-                if (response.isBlank()) continue
-
-                // Extract the move and comment: "= D4 (winrate 0.53 scoreLead 2.5)"
-                val move = parseGtpResponse(response) ?: continue
-                val winrate = Regex("winrate\\s+([\\d.]+)").find(move)?.groupValues?.get(1)?.toDouble()
-                val scoreLead = Regex("scoreLead\\s+([-\\d.]+)").find(move)?.groupValues?.get(1)?.toDouble()
-
-                if (winrate != null) {
-                    AppLogger.i(TAG, "genmove analysis: move=$move winrate=$winrate scoreLead=$scoreLead")
-
-                    // Undo the genmove to revert board state
-                    responseQueue.clear()
-                    sendCommand("undo")
-                    waitForResponse(5000)
-
-                    return AnalyzeResult(
-                        winrate = winrate,
-                        scoreLead = scoreLead ?: 0.0,
-                        moves = emptyList(),
-                        ownership = null
-                    )
-                }
-            }
-            null
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "genmove fallback analysis failed", e)
-            null
         }
     }
 
     suspend fun playMove(color: String, move: String): Boolean = withContext(Dispatchers.IO) {
-        try {
-            responseQueue.clear()
-            sendCommand("play $color $move")
-            val response = waitForResponse(5000)
-            response.startsWith("=")
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error playing move", e)
-            false
+        commandMutex.withLock {
+            try {
+                responseQueue.clear()
+                sendCommand("play $color $move")
+                val response = waitForResponse(5000)
+                response.startsWith("=")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Error playing move", e)
+                false
+            }
         }
     }
 
     suspend fun setBoardSize(size: Int): Boolean = withContext(Dispatchers.IO) {
-        try {
-            responseQueue.clear()
-            sendCommand("boardsize $size")
-            val response = waitForResponse(5000)
-            response.startsWith("=")
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error setting board size", e)
-            false
+        commandMutex.withLock {
+            try {
+                responseQueue.clear()
+                sendCommand("boardsize $size")
+                val response = waitForResponse(5000)
+                response.startsWith("=")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Error setting board size", e)
+                false
+            }
         }
     }
 
     suspend fun clearBoard(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            responseQueue.clear()
-            sendCommand("clear_board")
-            val response = waitForResponse(5000)
-            response.startsWith("=")
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error clearing board", e)
-            false
+        commandMutex.withLock {
+            try {
+                responseQueue.clear()
+                sendCommand("clear_board")
+                val response = waitForResponse(5000)
+                response.startsWith("=")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Error clearing board", e)
+                false
+            }
         }
     }
 
     suspend fun setKomi(komi: Float): Boolean = withContext(Dispatchers.IO) {
-        try {
-            responseQueue.clear()
-            sendCommand("komi $komi")
-            val response = waitForResponse(5000)
-            response.startsWith("=")
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error setting komi", e)
-            false
+        commandMutex.withLock {
+            try {
+                responseQueue.clear()
+                sendCommand("komi $komi")
+                val response = waitForResponse(5000)
+                response.startsWith("=")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Error setting komi", e)
+                false
+            }
         }
     }
 
     suspend fun undo(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            responseQueue.clear()
-            sendCommand("undo")
-            val response = waitForResponse(5000)
-            response.startsWith("=")
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error undoing move", e)
-            false
+        commandMutex.withLock {
+            try {
+                responseQueue.clear()
+                sendCommand("undo")
+                val response = waitForResponse(5000)
+                response.startsWith("=")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Error undoing move", e)
+                false
+            }
         }
     }
 
     suspend fun getFinalScore(): String? = withContext(Dispatchers.IO) {
-        try {
-            responseQueue.clear()
-            sendCommand("final_score")
-            val response = waitForResponse(10000)
-            parseGtpResponse(response)
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error getting final score", e)
-            null
+        commandMutex.withLock {
+            try {
+                responseQueue.clear()
+                sendCommand("final_score")
+                val response = waitForResponse(10000)
+                parseGtpResponse(response)
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Error getting final score", e)
+                null
+            }
         }
     }
 
