@@ -49,6 +49,8 @@ fun GoBoard(
     candidateMarkers: List<Pair<Int,Int>> = emptyList(),
     candidateWinrates: List<Float> = emptyList(),
     showEyeOverlay: Boolean = false,
+    showCandidates: Boolean = false,
+    analysisMoveIndex: Int = 0,
     playedMovePoints: List<Pair<Int,Int>> = emptyList(),
     moveQualities: List<Int> = emptyList()
 ) {
@@ -135,30 +137,37 @@ fun GoBoard(
 
             drawStones(board, boardSize, padding, cellSize, lastMovePoint, stoneAnimScale.value, stoneAnimOffset.value)
 
-            // Candidate markers (top 3 green-to-yellow circles)
-            candidateMarkers.forEachIndexed { idx, (cx, cy) ->
-                val wr = candidateWinrates.getOrElse(idx) { 0.5f }
+            // Candidate markers — ONLY in analysis/review mode, with winrate % label inside
+            if (showCandidates) {
                 val maxWr = candidateWinrates.maxOrNull() ?: 1f
-                val ratio = if (maxWr > 0f) (wr / maxWr).coerceIn(0f, 1f) else 0.5f
-                val r = (1f - ratio) * 0.4f // green=0, yellow=0.4
-                val g = 0.7f + ratio * 0.3f  // green 0.7->1.0
-                val b = 0f
-                val markerColor = Color(red = r, green = g, blue = b, alpha = 0.45f)
-                val px = padding + cx * cellSize
-                val py = padding + cy * cellSize
-                drawCircle(markerColor, radius = cellSize * 0.35f, center = Offset(px, py))
-                drawCircle(markerColor.copy(alpha = 0.7f), radius = cellSize * 0.35f, center = Offset(px, py), style = Stroke(width = 2f))
-            }
-
-            // 👁️ Replay overlay: show played moves (white circles) + quality marks
-            if (showEyeOverlay) {
-                playedMovePoints.forEachIndexed { idx, (cx, cy) ->
+                candidateMarkers.forEachIndexed { idx, (cx, cy) ->
+                    val wr = candidateWinrates.getOrElse(idx) { 0f }
+                    val ratio = if (maxWr > 0f) (wr / maxWr).coerceIn(0f, 1f) else 0.5f
+                    // gradient: higher winrate = greener, lower = yellower
+                    val r = (1f - ratio) * 0.8f
+                    val g = 0.5f + ratio * 0.5f
+                    val b = 0f
+                    val markerColor = Color(red = r, green = g, blue = b, alpha = 0.55f)
                     val px = padding + cx * cellSize
                     val py = padding + cy * cellSize
-                    // White circle on each played move
+                    drawCircle(markerColor, radius = cellSize * 0.35f, center = Offset(px, py))
+                    drawCircle(markerColor.copy(alpha = 0.9f), radius = cellSize * 0.35f, center = Offset(px, py), style = Stroke(width = 2f))
+                    // Winrate % label inside the circle
+                    if (wr > 0f) {
+                        val label = "%.0f".format(wr * 100)
+                        drawTextOnBoard(label, px, py, cellSize * 0.28f, Color.Black.copy(alpha = 0.8f))
+                    }
+                }
+            }
+
+            // 👁️ Replay overlay: played moves (white circles) shown up to current move, + quality marks
+            if (showEyeOverlay) {
+                val shown = if (analysisMoveIndex > 0) analysisMoveIndex else playedMovePoints.size
+                playedMovePoints.take(shown).forEachIndexed { idx, (cx, cy) ->
+                    val px = padding + cx * cellSize
+                    val py = padding + cy * cellSize
                     drawCircle(Color.White.copy(alpha = 0.65f), radius = cellSize * 0.3f, center = Offset(px, py))
                     drawCircle(Color.White.copy(alpha = 0.9f), radius = cellSize * 0.3f, center = Offset(px, py), style = Stroke(width = 2f))
-                    // Quality mark: 1 = pink (5-10% drop), 2 = red (>=10% drop)
                     val q = moveQualities.getOrElse(idx) { 0 }
                     if (q == 1) {
                         drawCircle(Color(red = 1f, green = 0.4f, blue = 0.6f, alpha = 0.85f), radius = cellSize * 0.18f, center = Offset(px, py))
@@ -285,6 +294,20 @@ private fun getStarPoints(boardSize: Int): List<Point> {
         )
         9 -> listOf(Point(2,2), Point(4,4), Point(6,6), Point(2,6), Point(6,2))
         else -> emptyList()
+    }
+}
+
+// Draw text at a board position (used for winrate labels on candidate circles)
+private fun DrawScope.drawTextOnBoard(text: String, cx: Float, cy: Float, size: Float, color: Color) {
+    val paint = Paint().apply {
+        this.color = color.toArgb()
+        textSize = size
+        textAlign = Paint.Align.CENTER
+        isAntiAlias = true
+        isFakeBoldText = true
+    }
+    drawIntoCanvas { canvas ->
+        canvas.nativeCanvas.drawText(text, cx, cy + size * 0.35f, paint)
     }
 }
 

@@ -207,6 +207,11 @@ class GameViewModel : ViewModel() {
             capturedByBlack = s.board.getCapturedWhite(),
             capturedByWhite = s.board.getCapturedBlack()
         )
+        // Sync to engine and re-analyze the new position
+        viewModelScope.launch {
+            engine?.playMove(color.toGtp(), point.toGtp(s.boardSize))
+            requestAnalysis()
+        }
     }
 
     private fun handleDoubleTap(point: Point) {
@@ -422,7 +427,6 @@ class GameViewModel : ViewModel() {
                     s.board.playMove(m)
                     recorder.recordMove(m)
                     if (s.soundEnabled) soundPlayer?.playPlace()
-                    requestAnalysis()
                     _state.value = _state.value.copy(
                         currentPlayer = color.opposite(), isPlayerTurn = true,
                         lastMovePoint = pt,
@@ -431,6 +435,7 @@ class GameViewModel : ViewModel() {
                         gameMessage = "Your turn",
                         analysisMoves = recorder.rebuildAnalysisMoves()
                     )
+                    requestAnalysis()  // after state update → correct perspective
                 } else {
                     _state.value = _state.value.copy(gameMessage = "AI error")
                 }

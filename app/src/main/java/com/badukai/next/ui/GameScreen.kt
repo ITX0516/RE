@@ -1,6 +1,8 @@
 package com.badukai.next.ui
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.horizontalScroll
@@ -150,24 +152,34 @@ fun GameScreen(
             }
         }
 
-        // ── Win rate bar ──
-        val wr = if (state.winrate > 0f) state.winrate else 0.5f
-        val blackWR = 1f - wr
-        Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp)) {
+        // ── Win rate bar (larger, smooth animation) ──
+        val wrTarget = if (state.winrate > 0f) state.winrate else 0.5f
+        val blackWrTarget = 1f - wrTarget
+        val animatedBlackWr by animateFloatAsState(
+            targetValue = blackWrTarget.coerceIn(0f, 1f),
+            animationSpec = tween(durationMillis = 600),
+            label = "winrate"
+        )
+        val blackWR = animatedBlackWr
+        val wr = 1f - blackWR
+        Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)) {
             Box(
-                Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(colors.Divider)
+                Modifier.fillMaxWidth().height(12.dp).clip(RoundedCornerShape(6.dp)).background(colors.Divider)
             ) {
                 Box(
-                    Modifier.fillMaxHeight().fillMaxWidth(blackWR.coerceIn(0f, 1f))
-                        .clip(RoundedCornerShape(3.dp)).background(colors.BlackStone)
+                    Modifier.fillMaxHeight().fillMaxWidth(blackWR)
+                        .clip(RoundedCornerShape(6.dp)).background(colors.BlackStone)
                 )
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("B ${"%.1f".format(blackWR * 100)}%", color = colors.TextSecondary, fontSize = 11.sp)
-                if (wr > 0f) {
-                    Text("${if (state.scoreLead >= 0) "B+" else "W+"}${"%.1f".format(kotlin.math.abs(state.scoreLead))}", color = colors.TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+            Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("B ${"%.1f".format(blackWR * 100)}%", color = colors.TextSecondary, fontSize = 13.sp)
+                if (state.winrate > 0f) {
+                    Text(
+                        "${if (state.scoreLead >= 0) "B+" else "W+"}${"%.1f".format(kotlin.math.abs(state.scoreLead))}",
+                        color = colors.TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold
+                    )
                 }
-                Text("W ${"%.1f".format(wr * 100)}%", color = colors.TextSecondary, fontSize = 11.sp)
+                Text("W ${"%.1f".format(wr * 100)}%", color = colors.TextSecondary, fontSize = 13.sp)
             }
         }
 
@@ -191,6 +203,8 @@ fun GameScreen(
                     candidateMarkers = state.topCandidatePoints,
                     candidateWinrates = state.topCandidateWinrates,
                     showEyeOverlay = state.showEyeOverlay,
+                    showCandidates = state.gameMode == GameMode.ANALYZE,
+                    analysisMoveIndex = state.analysisMoveIndex,
                     playedMovePoints = state.playedMovePoints,
                     moveQualities = state.moveQualities
                 )

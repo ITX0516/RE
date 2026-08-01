@@ -554,7 +554,7 @@ class KataGoEngine(private val context: Context) {
     /**
      * Parse Leela Zero "info" format from lz-analyze:
      * "info move E5 visits 4812 winrate 4492 ... info move F5 visits ..."
-     * winrate is in THOUSANDTHS (4492 = 44.92%).
+     * winrate unit: 10000 = 100% (so 4492 = 44.92%).
      */
     private fun parseLzInfo(line: String): AnalyzeResult? {
         val regex = Regex("info move (\\S+) visits (\\d+) winrate (-?\\d+)")
@@ -565,8 +565,8 @@ class KataGoEngine(private val context: Context) {
         for (m in matches) {
             val coord = m.groupValues[1]
             val visits = m.groupValues[2].toIntOrNull() ?: 0
-            val wrThousandths = m.groupValues[3].toDoubleOrNull() ?: continue
-            val winrate = wrThousandths / 1000.0
+            val wrRaw = m.groupValues[3].toDoubleOrNull() ?: continue
+            val winrate = wrRaw / 10000.0
             val cm = CandidateMove.fromGtp(coord, 19) ?: continue
             candidates.add(cm.copy(
                 winRate = winrate.toFloat(),
