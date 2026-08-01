@@ -2,6 +2,7 @@ package com.badukai.next.ui
 
 import android.graphics.Paint
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -77,12 +78,17 @@ fun GoBoard(
                     stoneAnimScale.snapTo(0.6f)
                     stoneAnimScale.animateTo(1f, animationSpec = tween(200))
                 }
-                1 -> { // Drop — appears from below and rises onto the board
+                1 -> { // Drop — from above, falls down onto the board (original)
                     stoneAnimScale.snapTo(1f)
-                    stoneAnimOffset.snapTo(cellSize * 0.6f)
+                    stoneAnimOffset.snapTo(-cellSize * 0.5f)
                     stoneAnimOffset.animateTo(0f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))
                 }
-                2 -> { // None
+                2 -> { // Down — appears slightly below, floats up onto board like a leaf
+                    stoneAnimScale.snapTo(1f)
+                    stoneAnimOffset.snapTo(cellSize * 0.4f)
+                    stoneAnimOffset.animateTo(0f, animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing))
+                }
+                3 -> { // None
                     stoneAnimScale.snapTo(1f)
                     stoneAnimOffset.snapTo(0f)
                 }

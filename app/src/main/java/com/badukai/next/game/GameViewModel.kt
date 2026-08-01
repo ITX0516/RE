@@ -24,7 +24,7 @@ enum class GameMode(val displayName: String) {
 }
 
 enum class StoneAnimation(val displayName: String) {
-    FADE_IN("Fade In"), DROP("Drop"), NONE("None")
+    FADE_IN("Fade In"), DROP("Drop"), DOWN("Down"), NONE("None")
 }
 
 enum class PlacementMode(val displayName: String) {

@@ -43,6 +43,7 @@ fun GameScreen(
     onPass: () -> Unit,
     onResign: () -> Unit,
     onTerritoryEstimate: () -> Unit,
+    onForceEndGame: () -> Unit,
     onUndo: () -> Unit,
     onNewGame: () -> Unit,
     onStartNewGame: (StoneColor, Int, Int, Float) -> Unit,
@@ -199,7 +200,7 @@ fun GameScreen(
                 Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text(state.territoryResult, color = colors.TextPrimary, fontSize = 12.sp, modifier = Modifier.weight(1f))
                     Box(
-                        Modifier.clip(RoundedCornerShape(6.dp)).background(colors.Danger).clickable { /* force end game */ }.padding(horizontal = 8.dp, vertical = 4.dp),
+                        Modifier.clip(RoundedCornerShape(6.dp)).background(colors.Danger).clickable { onForceEndGame() }.padding(horizontal = 8.dp, vertical = 4.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text("End", color = colors.TextOnAccent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)

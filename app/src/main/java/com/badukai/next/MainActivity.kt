@@ -31,6 +31,7 @@ class MainActivity : ComponentActivity() {
                 onPass = viewModel::pass,
                 onResign = viewModel::resign,
                 onTerritoryEstimate = viewModel::toggleTerritoryOverlay,
+                onForceEndGame = viewModel::forceEndGame,
                 onUndo = viewModel::undo,
                 onNewGame = viewModel::showNewGameDialog,
                 onStartNewGame = viewModel::startNewGame,
