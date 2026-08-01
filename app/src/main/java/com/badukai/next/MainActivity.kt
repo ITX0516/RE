@@ -47,6 +47,8 @@ class MainActivity : ComponentActivity() {
                 onSetGameMode = viewModel::setGameMode,
                 onSetPlacementMode = viewModel::setPlacementMode,
                 onSetAnimation = viewModel::setStoneAnimation,
+                onToggleEye = viewModel::toggleEyeOverlay,
+                onDismissCelebration = viewModel::dismissCelebration,
                 onAnalysisPrev = viewModel::analysisPrev,
                 onAnalysisNext = viewModel::analysisNext,
                 onAnalysisJump = viewModel::navigateToMove,

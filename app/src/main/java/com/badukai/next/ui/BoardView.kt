@@ -42,9 +42,12 @@ fun GoBoard(
     pendingDot: Point? = null,
     showTerritory: Boolean = false,
     ownership: List<Float>? = null,
-    animationMode: Int = 0, // 0=fade, 1=drop, 2=none
+    animationMode: Int = 0, // 0=fade, 1=drop, 2=down, 3=none
     candidateMarkers: List<Pair<Int,Int>> = emptyList(),
-    candidateWinrates: List<Float> = emptyList()
+    candidateWinrates: List<Float> = emptyList(),
+    showEyeOverlay: Boolean = false,
+    playedMovePoints: List<Pair<Int,Int>> = emptyList(),
+    moveQualities: List<Int> = emptyList()
 ) {
     val boardSize = board.size
     val density = LocalDensity.current
@@ -135,6 +138,24 @@ fun GoBoard(
                 val py = padding + cy * cellSize
                 drawCircle(markerColor, radius = cellSize * 0.35f, center = Offset(px, py))
                 drawCircle(markerColor.copy(alpha = 0.7f), radius = cellSize * 0.35f, center = Offset(px, py), style = Stroke(width = 2f))
+            }
+
+            // 👁️ Replay overlay: show played moves (white circles) + quality marks
+            if (showEyeOverlay) {
+                playedMovePoints.forEachIndexed { idx, (cx, cy) ->
+                    val px = padding + cx * cellSize
+                    val py = padding + cy * cellSize
+                    // White circle on each played move
+                    drawCircle(Color.White.copy(alpha = 0.65f), radius = cellSize * 0.3f, center = Offset(px, py))
+                    drawCircle(Color.White.copy(alpha = 0.9f), radius = cellSize * 0.3f, center = Offset(px, py), style = Stroke(width = 2f))
+                    // Quality mark: 1 = pink (5-10% drop), 2 = red (>=10% drop)
+                    val q = moveQualities.getOrElse(idx) { 0 }
+                    if (q == 1) {
+                        drawCircle(Color(red = 1f, green = 0.4f, blue = 0.6f, alpha = 0.85f), radius = cellSize * 0.18f, center = Offset(px, py))
+                    } else if (q == 2) {
+                        drawCircle(Color(red = 1f, green = 0f, blue = 0f, alpha = 0.9f), radius = cellSize * 0.18f, center = Offset(px, py))
+                    }
+                }
             }
 
             if (showCoordinates) {

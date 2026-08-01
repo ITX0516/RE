@@ -28,6 +28,7 @@ import androidx.compose.ui.window.Dialog
 import com.badukai.next.analysis.AnalysisTab
 import com.badukai.next.engine.KataGoEngine
 import com.badukai.next.game.GameMode
+import com.badukai.next.game.GameResult
 import com.badukai.next.game.GameState
 import com.badukai.next.game.PlacementMode
 import com.badukai.next.game.StoneAnimation
@@ -66,6 +67,8 @@ fun GameScreen(
     onCancelMove: () -> Unit,
     onSetPlaceSound: (Int) -> Unit,
     onSetAnimation: (StoneAnimation) -> Unit,
+    onToggleEye: () -> Unit,
+    onDismissCelebration: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     LaunchedEffect(state.currentTheme) { BadukNextColors.setTheme(state.currentTheme) }
@@ -186,7 +189,10 @@ fun GameScreen(
                     ownership = state.ownership,
                     animationMode = state.stoneAnimation.ordinal,
                     candidateMarkers = state.topCandidatePoints,
-                    candidateWinrates = state.topCandidateWinrates
+                    candidateWinrates = state.topCandidateWinrates,
+                    showEyeOverlay = state.showEyeOverlay,
+                    playedMovePoints = state.playedMovePoints,
+                    moveQualities = state.moveQualities
                 )
             }
         }
@@ -213,7 +219,7 @@ fun GameScreen(
         PlayButtonRow(state, onNewGame, onPass, onResign, onTerritoryEstimate, onUndo)
 
         // ── Analysis sub-tabs (both modes) ──
-        AnalysisFooter(state, onAnalysisPrev, onAnalysisNext, onAnalysisJump)
+        AnalysisFooter(state, onAnalysisPrev, onAnalysisNext, onAnalysisJump, onToggleEye)
     }
 
     // ── Dialogs ──
@@ -243,6 +249,11 @@ fun GameScreen(
             currentAnimation = state.stoneAnimation,
             onSetAnimation = onSetAnimation
         )
+    }
+
+    // ── End-game celebration overlay ──
+    if (state.gameResult != null) {
+        CelebrationOverlay(result = state.gameResult, onDismiss = onDismissCelebration)
     }
 }
 
@@ -281,7 +292,7 @@ private fun IconBtn(icon: String, label: String, onClick: () -> Unit, enabled: B
 }
 
 @Composable
-private fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> Unit, onJumpToMove: (Int) -> Unit) {
+private fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> Unit, onJumpToMove: (Int) -> Unit, onToggleEye: () -> Unit) {
     val colors = BadukNextColors
     var selectedTab by remember { mutableStateOf(AnalysisTab.MOVE_TREE) }
 
@@ -295,6 +306,19 @@ private fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> U
         Text("${state.analysisMoveIndex}/${state.analysisMoves.size}", modifier = Modifier.width(70.dp), textAlign = TextAlign.Center, color = colors.TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         IconButton(onClick = onNext, enabled = state.analysisMoveIndex < state.analysisMoves.size, modifier = Modifier.size(32.dp)) {
             Text("\u25B6", fontSize = 16.sp, color = if (state.analysisMoveIndex < state.analysisMoves.size) colors.TextPrimary else colors.ButtonDisabledText)
+        }
+        // 👁️ Replay analysis toggle
+        val eyeColor = if (state.showEyeOverlay) colors.Accent else colors.TextSecondary
+        Box(
+            modifier = Modifier
+                .padding(start = 4.dp)
+                .size(30.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(if (state.showEyeOverlay) colors.AccentLight else colors.SurfaceVariant)
+                .clickable(onClick = onToggleEye),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("\uD83D\uDC41", fontSize = 14.sp, color = eyeColor) // 👁
         }
     }
 

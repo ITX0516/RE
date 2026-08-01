@@ -74,8 +74,16 @@ data class GameState(
     val winrate: Float = 0f,
     val scoreLead: Float = 0f,
     val ownership: List<Float>? = null,
-    val candidateInfo: List<String> = emptyList()
+    val candidateInfo: List<String> = emptyList(),
+    val showEyeOverlay: Boolean = false,
+    val playedMovePoints: List<Pair<Int,Int>> = emptyList(),
+    val moveQualities: List<Int> = emptyList(),
+    val gameResult: GameResult? = null
 )
+
+enum class GameResult(val label: String) {
+    WIN("You win!"), LOSE("You lose"), DRAW("Draw")
+}
 
 class GameViewModel : ViewModel() {
 
@@ -296,6 +304,12 @@ class GameViewModel : ViewModel() {
                 if (cm.x >= 0 && cm.y >= 0) Pair(cm.x, cm.y) else null
             }
             val topWrs = result.moves.take(3).map { cm -> cm.winRate ?: 0.5f }
+            // Convert winrate to Black's perspective for consistent history
+            val blackWinrate = if (s.currentPlayer == StoneColor.WHITE)
+                1f - result.winrate.toFloat() else result.winrate.toFloat()
+            val newHistory = s.winrateHistory + blackWinrate
+            val newScoreHistory = s.scoreLeadHistory + result.scoreLead.toFloat()
+
             _state.value = s.copy(
                 winrate = result.winrate.toFloat(),
                 scoreLead = result.scoreLead.toFloat(),
@@ -303,10 +317,32 @@ class GameViewModel : ViewModel() {
                 candidateInfo = candidates,
                 topCandidatePoints = topPts,
                 topCandidateWinrates = topWrs,
-                winrateHistory = s.winrateHistory + result.winrate.toFloat(),
-                scoreLeadHistory = s.scoreLeadHistory + result.scoreLead.toFloat()
+                winrateHistory = newHistory,
+                scoreLeadHistory = newScoreHistory,
+                playedMovePoints = s.analysisMoves.mapNotNull { (it.move as? Move.Stone)?.point?.let { p -> Pair(p.x, p.y) } },
+                moveQualities = computeMoveQualities(newHistory, s.analysisMoves)
             )
         }
+    }
+
+    // 0 = good, 1 = pink (5-10% drop), 2 = red (>=10% drop)
+    private fun computeMoveQualities(blackHistory: List<Float>, moves: List<RecordedMove>): List<Int> {
+        val qualities = MutableList(moves.size) { 0 }
+        if (blackHistory.size < 2) return qualities
+        for (i in 1 until blackHistory.size) {
+            val moveIdx = i - 1
+            if (moveIdx >= moves.size) break
+            val moveColor = (moves[moveIdx].move as? Move.Stone)?.color
+            val delta = blackHistory[i] - blackHistory[i - 1]
+            // Mover's winrate change: if White moved, black improving hurts White
+            val moverDelta = if (moveColor == StoneColor.WHITE) -delta else delta
+            qualities[moveIdx] = when {
+                moverDelta <= -0.10f -> 2
+                moverDelta <= -0.05f -> 1
+                else -> 0
+            }
+        }
+        return qualities
     }
 
     fun forceEndGame() {
@@ -316,10 +352,12 @@ class GameViewModel : ViewModel() {
             engine?.playMove("black", "pass")
             engine?.playMove("white", "pass")
             val score = engine?.getFinalScore()
+            val result = resolveGameResult(score)
             _state.value = _state.value.copy(
                 isPlayerTurn = false,
                 gameMessage = score?.let { "Game over. $it" } ?: "Game over",
-                territoryResult = score ?: "No result"
+                territoryResult = score ?: "No result",
+                gameResult = result
             )
         }
     }
@@ -366,7 +404,8 @@ class GameViewModel : ViewModel() {
                 recorder.recordMove(m)
                 _state.value = _state.value.copy(
                     gameMessage = "AI resigned. You win!",
-                    analysisMoves = recorder.rebuildAnalysisMoves()
+                    analysisMoves = recorder.rebuildAnalysisMoves(),
+                    gameResult = GameResult.WIN
                 )
             }
             else -> {
@@ -414,16 +453,32 @@ class GameViewModel : ViewModel() {
         s.board.playMove(m)
         recorder.recordMove(m)
         val winner = if (s.playerColor == StoneColor.BLACK) "White" else "Black"
-        _state.value = s.copy(gameMessage = "You resigned. $winner wins!")
+        _state.value = s.copy(
+            gameMessage = "You resigned. $winner wins!",
+            gameResult = GameResult.LOSE
+        )
     }
 
     private fun handleGameEnd() {
         viewModelScope.launch {
             val score = engine?.getFinalScore()
+            val result = resolveGameResult(score)
             _state.value = _state.value.copy(
-                gameMessage = score?.let { "Game over. $it" } ?: "Game over"
+                gameMessage = score?.let { "Game over. $it" } ?: "Game over",
+                gameResult = result
             )
         }
+    }
+
+    private fun resolveGameResult(score: String?): GameResult? {
+        val s = _state.value
+        if (score == null) return null
+        val trimmed = score.trim()
+        if (trimmed.startsWith("0") || trimmed.equals("draw", true) || trimmed.equals("tie", true)) {
+            return GameResult.DRAW
+        }
+        val blackWins = trimmed.startsWith("B")
+        return if ((s.playerColor == StoneColor.BLACK) == blackWins) GameResult.WIN else GameResult.LOSE
     }
 
     fun undo() {
@@ -457,6 +512,14 @@ class GameViewModel : ViewModel() {
         _state.value = s.copy(showTerritoryOverlay = newVal, showTerritoryDialog = newVal)
     }
     fun hideTerritoryDialog() { _state.value = _state.value.copy(showTerritoryDialog = false, territoryResult = "") }
+
+    fun toggleEyeOverlay() {
+        _state.value = _state.value.copy(showEyeOverlay = !_state.value.showEyeOverlay)
+    }
+
+    fun dismissCelebration() {
+        _state.value = _state.value.copy(gameResult = null)
+    }
 
     private fun estimateScore() {
         val s = _state.value
@@ -586,7 +649,11 @@ class GameViewModel : ViewModel() {
     fun startNewGame(playerColor: StoneColor, boardSize: Int, handicap: Int, komi: Float) {
         val s = _state.value
         freeStoneColor = StoneColor.BLACK
-        _state.value = _state.value.copy(winrateHistory = emptyList(), scoreLeadHistory = emptyList())
+        _state.value = _state.value.copy(
+            winrateHistory = emptyList(), scoreLeadHistory = emptyList(),
+            gameResult = null, showEyeOverlay = false,
+            playedMovePoints = emptyList(), moveQualities = emptyList()
+        )
         recorder.reset()
 
         // Clamp handicap for non-standard boards
