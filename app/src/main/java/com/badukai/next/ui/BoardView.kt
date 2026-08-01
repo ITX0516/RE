@@ -3,8 +3,11 @@ package com.badukai.next.ui
 import android.graphics.Paint
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -86,10 +89,17 @@ fun GoBoard(
                     stoneAnimOffset.snapTo(-cellSize * 0.5f)
                     stoneAnimOffset.animateTo(0f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))
                 }
-                2 -> { // Down — appears slightly below, floats up onto board like a leaf
-                    stoneAnimScale.snapTo(1f)
-                    stoneAnimOffset.snapTo(cellSize * 0.4f)
-                    stoneAnimOffset.animateTo(0f, animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing))
+                2 -> { // Down — leaf falls from above, small→large (far→near)
+                    stoneAnimScale.snapTo(0.3f)
+                    stoneAnimOffset.snapTo(-cellSize * 0.9f)
+                    coroutineScope {
+                        launch {
+                            stoneAnimScale.animateTo(1f, animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing))
+                        }
+                        launch {
+                            stoneAnimOffset.animateTo(0f, animationSpec = tween(durationMillis = 700, easing = LinearEasing))
+                        }
+                    }
                 }
                 3 -> { // None
                     stoneAnimScale.snapTo(1f)

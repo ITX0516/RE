@@ -364,22 +364,20 @@ class KataGoEngine(private val context: Context) {
 
     /**
      * Request KataGo analysis for current position.
-     * Sends kata-analyze, parses JSON response for winrate, scoreLead, candidates, ownership.
+     * Tries kata-analyze (JSON), falls back to lz-analyze (Leela Zero format).
      */
     suspend fun analyzePosition(maxVisits: Int = 300): AnalyzeResult? = withContext(Dispatchers.IO) {
         commandMutex.withLock {
             try {
-                // Stream mode: reader queues each JSON line immediately
                 inStreamMode = true
                 responseQueue.clear()
-                // kata-analyze: moves=true, ownership=true, interval=100cs, maxVisits
-                sendCommand("kata-analyze true true interval 100 maxVisits $maxVisits")
+                // Format used by Lizzie / KataGo analysis clients
+                sendCommand("kata-analyze {maxVisits $maxVisits} {ownership true}")
                 val raw = waitForResponse(15000)
-                // Stop the streaming analysis with a harmless command (no board state change)
                 inStreamMode = false
+                // Stop streaming with a harmless command (no board state change)
                 sendCommand("protocol_version")
                 waitForResponse(2000)
-                // Drain any stray lines the analysis may have emitted before stopping
                 while (responseQueue.poll() != null) {}
 
                 if (raw.isBlank()) {
@@ -387,15 +385,20 @@ class KataGoEngine(private val context: Context) {
                     return@withLock null
                 }
                 if (raw.trimStart().startsWith("?")) {
-                    AppLogger.e(TAG, "kata-analyze not supported: ${raw.take(100)}")
-                    return@withLock null
+                    AppLogger.e(TAG, "kata-analyze unsupported: ${raw.take(120)}")
+                    // Fallback to lz-analyze
+                    val lz = tryLzAnalyze()
+                    return@withLock lz
                 }
                 val gtp = parseGtpResponse(raw)
                 if (gtp == null) {
                     AppLogger.e(TAG, "kata-analyze: parse failed, raw=[${raw.take(200)}]")
                     return@withLock null
                 }
-                val json = JSONObject(gtp)
+                val json = try { JSONObject(gtp) } catch (e: Exception) {
+                    AppLogger.e(TAG, "kata-analyze: JSON error ${e.message} text=[${gtp.take(200)}]")
+                    return@withLock null
+                }
 
                 val rootInfo = json.optJSONObject("rootInfo")
                 val winrate = rootInfo?.optDouble("winrate", 0.5) ?: 0.5
@@ -432,6 +435,60 @@ class KataGoEngine(private val context: Context) {
                 AppLogger.e(TAG, "kata-analyze error", e)
                 null
             }
+        }
+    }
+
+    /**
+     * Fallback analysis via lz-analyze (Leela Zero GTP protocol).
+     * Called only from analyzePosition (already holds commandMutex).
+     */
+    private suspend fun tryLzAnalyze(): AnalyzeResult? {
+        return try {
+            inStreamMode = true
+            responseQueue.clear()
+            sendCommand("lz-analyze 100")
+            val raw = waitForResponse(15000)
+            inStreamMode = false
+            sendCommand("protocol_version")
+            waitForResponse(2000)
+            while (responseQueue.poll() != null) {}
+
+            if (raw.isBlank() || raw.trimStart().startsWith("?")) {
+                AppLogger.e(TAG, "lz-analyze also unsupported: ${raw.take(120)}")
+                return null
+            }
+            // Format: = <moveNum> <visits> <winratePct> <scoreLead> [coord:visits:wr:score]...
+            val clean = raw.trim().removePrefix("=").trim()
+            val parts = clean.split(Regex("\\s+"))
+            if (parts.size < 5) {
+                AppLogger.e(TAG, "lz-analyze parse fail: $clean")
+                return null
+            }
+            val winratePct = parts[2].toDoubleOrNull() ?: return null
+            val scoreLead = parts[3].toDoubleOrNull() ?: 0.0
+            val winrate = winratePct / 100.0
+
+            val candidates = mutableListOf<CandidateMove>()
+            for (i in 4 until parts.size) {
+                val sub = parts[i].split(":")
+                if (sub.size >= 2) {
+                    val cm = CandidateMove.fromGtp(sub[0], 19)
+                    if (cm != null) {
+                        candidates.add(cm.copy(
+                            winRate = sub.getOrNull(2)?.toFloatOrNull() ?: 0f,
+                            scoreLead = sub.getOrNull(3)?.toFloatOrNull() ?: 0f,
+                            visits = sub.getOrNull(1)?.toIntOrNull() ?: 0,
+                            isBest = i == 4
+                        ))
+                    }
+                }
+            }
+            AppLogger.i(TAG, "lz-analyze success: wr=$winrate lead=$scoreLead")
+            AnalyzeResult(winrate, scoreLead, candidates, null)
+        } catch (e: Exception) {
+            inStreamMode = false
+            AppLogger.e(TAG, "lz-analyze error", e)
+            null
         }
     }
 

@@ -307,18 +307,20 @@ private fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> U
         IconButton(onClick = onNext, enabled = state.analysisMoveIndex < state.analysisMoves.size, modifier = Modifier.size(32.dp)) {
             Text("\u25B6", fontSize = 16.sp, color = if (state.analysisMoveIndex < state.analysisMoves.size) colors.TextPrimary else colors.ButtonDisabledText)
         }
-        // 👁️ Replay analysis toggle
-        val eyeColor = if (state.showEyeOverlay) colors.Accent else colors.TextSecondary
-        Box(
-            modifier = Modifier
-                .padding(start = 4.dp)
-                .size(30.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(if (state.showEyeOverlay) colors.AccentLight else colors.SurfaceVariant)
-                .clickable(onClick = onToggleEye),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("\uD83D\uDC41", fontSize = 14.sp, color = eyeColor) // 👁
+        // 👁️ Replay analysis toggle — only in analyze mode
+        if (state.gameMode == GameMode.ANALYZE) {
+            val eyeColor = if (state.showEyeOverlay) colors.Accent else colors.TextSecondary
+            Box(
+                modifier = Modifier
+                    .padding(start = 4.dp)
+                    .size(30.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(if (state.showEyeOverlay) colors.AccentLight else colors.SurfaceVariant)
+                    .clickable(onClick = onToggleEye),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("\uD83D\uDC41", fontSize = 14.sp, color = eyeColor) // 👁
+            }
         }
     }
 
