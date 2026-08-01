@@ -364,78 +364,130 @@ class KataGoEngine(private val context: Context) {
 
     /**
      * Request KataGo analysis for current position.
-     * Tries kata-analyze (JSON), falls back to lz-analyze (Leela Zero format).
+     * Priority: kata-genmove (non-streaming) → kata-analyze (streaming) → lz-analyze.
      */
-    suspend fun analyzePosition(maxVisits: Int = 300): AnalyzeResult? = withContext(Dispatchers.IO) {
+    suspend fun analyzePosition(color: String = "black", maxVisits: Int = 100): AnalyzeResult? = withContext(Dispatchers.IO) {
         commandMutex.withLock {
-            try {
-                inStreamMode = true
-                responseQueue.clear()
-                // Format used by Lizzie / KataGo analysis clients
-                sendCommand("kata-analyze {maxVisits $maxVisits} {ownership true}")
-                val raw = waitForResponse(15000)
-                inStreamMode = false
-                // Stop streaming with a harmless command (no board state change)
-                sendCommand("protocol_version")
-                waitForResponse(2000)
-                while (responseQueue.poll() != null) {}
+            val gen = analyzeViaKataGenmove(color, maxVisits)
+            if (gen != null) return@withLock gen
 
-                if (raw.isBlank()) {
-                    AppLogger.e(TAG, "kata-analyze: empty response")
-                    return@withLock null
-                }
-                if (raw.trimStart().startsWith("?")) {
-                    AppLogger.e(TAG, "kata-analyze unsupported: ${raw.take(120)}")
-                    // Fallback to lz-analyze
-                    val lz = tryLzAnalyze()
-                    return@withLock lz
-                }
-                val gtp = parseGtpResponse(raw)
-                if (gtp == null) {
-                    AppLogger.e(TAG, "kata-analyze: parse failed, raw=[${raw.take(200)}]")
-                    return@withLock null
-                }
-                val json = try { JSONObject(gtp) } catch (e: Exception) {
-                    AppLogger.e(TAG, "kata-analyze: JSON error ${e.message} text=[${gtp.take(200)}]")
-                    return@withLock null
-                }
+            val kata = analyzeViaKataAnalyze(maxVisits)
+            if (kata != null) return@withLock kata
 
-                val rootInfo = json.optJSONObject("rootInfo")
-                val winrate = rootInfo?.optDouble("winrate", 0.5) ?: 0.5
-                val scoreLead = rootInfo?.optDouble("scoreLead", 0.0) ?: 0.0
+            return@withLock tryLzAnalyze()
+        }
+    }
 
-                val movesJson = json.optJSONArray("moves")
-                val candidates = mutableListOf<CandidateMove>()
-                if (movesJson != null) {
-                    val boardSize = 19 // default
-                    for (i in 0 until minOf(movesJson.length(), 10)) {
-                        val m = movesJson.getJSONObject(i)
-                        val gtpMove = m.optString("move", null)
-                        val cm = if (gtpMove != null) CandidateMove.fromGtp(gtpMove, boardSize) else null
-                        candidates.add(CandidateMove(
-                            x = cm?.x ?: -1,
-                            y = cm?.y ?: -1,
-                            winRate = m.optDouble("winrate", 0.5).toFloat(),
-                            scoreLead = m.optDouble("scoreLead", 0.0).toFloat(),
-                            visits = m.optInt("visits", 0),
-                            isBest = i == 0
-                        ))
-                    }
-                }
+    /**
+     * Non-streaming analysis via kata-genmove (plays a move, then undoes).
+     * KataGo returns the move + analysis JSON in a single response.
+     */
+    private suspend fun analyzeViaKataGenmove(color: String, maxVisits: Int): AnalyzeResult? {
+        return try {
+            responseQueue.clear()
+            sendCommand("kata-genmove $color {maxVisits $maxVisits} {ownership true}")
+            val raw = waitForResponse(30000)
 
-                val ownershipJson = json.optJSONArray("ownership")
-                val ownership = if (ownershipJson != null) {
-                    (0 until ownershipJson.length()).map { ownershipJson.optDouble(it, 0.0) }
-                } else null
+            if (raw.isBlank()) {
+                AppLogger.e(TAG, "kata-genmove: empty response")
+                return null
+            }
+            if (raw.trimStart().startsWith("?")) {
+                AppLogger.e(TAG, "kata-genmove unsupported: ${raw.take(120)}")
+                return null // do NOT undo — no move was played
+            }
+            // Success — undo to revert the genmove (analysis must not change the board)
+            responseQueue.clear()
+            sendCommand("undo")
+            waitForResponse(5000)
 
-                AppLogger.i(TAG, "Analysis: winrate=$winrate scoreLead=$scoreLead candidates=${candidates.size}")
-                AnalyzeResult(winrate, scoreLead, candidates, ownership)
-            } catch (e: Exception) {
-                inStreamMode = false
-                AppLogger.e(TAG, "kata-analyze error", e)
-                null
+            parseKataJson(raw)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "kata-genmove error", e)
+            null
+        }
+    }
+
+    /**
+     * Streaming analysis via kata-analyze.
+     */
+    private suspend fun analyzeViaKataAnalyze(maxVisits: Int): AnalyzeResult? {
+        return try {
+            inStreamMode = true
+            responseQueue.clear()
+            sendCommand("kata-analyze {maxVisits $maxVisits} {ownership true}")
+            val raw = waitForResponse(15000)
+            inStreamMode = false
+            sendCommand("protocol_version")
+            waitForResponse(2000)
+            while (responseQueue.poll() != null) {}
+
+            if (raw.isBlank()) {
+                AppLogger.e(TAG, "kata-analyze: empty response")
+                return null
+            }
+            if (raw.trimStart().startsWith("?")) {
+                AppLogger.e(TAG, "kata-analyze unsupported: ${raw.take(120)}")
+                return null
+            }
+            parseKataJson(raw)
+        } catch (e: Exception) {
+            inStreamMode = false
+            AppLogger.e(TAG, "kata-analyze error", e)
+            null
+        }
+    }
+
+    /**
+     * Parse a KataGo JSON analysis response.
+     * Handles both "= D4 {json}" (same line) and "= D4\n{json}\n\n" (next line).
+     */
+    private fun parseKataJson(raw: String): AnalyzeResult? {
+        val gtp = parseGtpResponse(raw) ?: run {
+            AppLogger.e(TAG, "kata parse: no GTP response, raw=[${raw.take(200)}]")
+            return null
+        }
+        val braceIdx = gtp.indexOf("{")
+        if (braceIdx < 0) {
+            AppLogger.e(TAG, "kata parse: no JSON found in [$gtp]")
+            return null
+        }
+        val jsonText = gtp.substring(braceIdx)
+        val json = try { JSONObject(jsonText) } catch (e: Exception) {
+            AppLogger.e(TAG, "kata JSON error: ${e.message} text=[${jsonText.take(200)}]")
+            return null
+        }
+
+        val rootInfo = json.optJSONObject("rootInfo")
+        val winrate = rootInfo?.optDouble("winrate", 0.5) ?: 0.5
+        val scoreLead = rootInfo?.optDouble("scoreLead", 0.0) ?: 0.0
+
+        val movesJson = json.optJSONArray("moves")
+        val candidates = mutableListOf<CandidateMove>()
+        if (movesJson != null) {
+            val boardSize = 19 // default
+            for (i in 0 until minOf(movesJson.length(), 10)) {
+                val m = movesJson.getJSONObject(i)
+                val gtpMove = m.optString("move", null)
+                val cm = if (gtpMove != null) CandidateMove.fromGtp(gtpMove, boardSize) else null
+                candidates.add(CandidateMove(
+                    x = cm?.x ?: -1,
+                    y = cm?.y ?: -1,
+                    winRate = m.optDouble("winrate", 0.5).toFloat(),
+                    scoreLead = m.optDouble("scoreLead", 0.0).toFloat(),
+                    visits = m.optInt("visits", 0),
+                    isBest = i == 0
+                ))
             }
         }
+
+        val ownershipJson = json.optJSONArray("ownership")
+        val ownership = if (ownershipJson != null) {
+            (0 until ownershipJson.length()).map { ownershipJson.optDouble(it, 0.0) }
+        } else null
+
+        AppLogger.i(TAG, "Analysis: winrate=$winrate scoreLead=$scoreLead candidates=${candidates.size}")
+        return AnalyzeResult(winrate, scoreLead, candidates, ownership)
     }
 
     /**

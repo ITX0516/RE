@@ -287,8 +287,9 @@ class GameViewModel : ViewModel() {
     }
 
     private fun requestAnalysis() {
+        val color = _state.value.currentPlayer.toGtp()
         viewModelScope.launch {
-            val result = engine?.analyzePosition(100) // lower visits for speed
+            val result = engine?.analyzePosition(color, 100) // lower visits for speed
             if (result == null) return@launch
             val s = _state.value
             val candidates = result.moves.take(10).map { cm ->
@@ -538,7 +539,7 @@ class GameViewModel : ViewModel() {
                         territoryResult = "Win rate: B $bw% / W $ww%\nScore: $side+$lead"
                     )
                 } else {
-                    val result = engine?.analyzePosition(500)
+                    val result = engine?.analyzePosition(s.currentPlayer.toGtp(), 300)
                     if (result != null) {
                         val bw = "%.1f".format((1f - result.winrate.toFloat()) * 100f)
                         val ww = "%.1f".format(result.winrate.toFloat() * 100f)
