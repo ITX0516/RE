@@ -122,8 +122,9 @@ private fun FallingParticles(result: GameResult) {
     }
 
     // Clean up animation if overlay is dismissed early
+    val coroutineScope = rememberCoroutineScope()
     DisposableEffect(result) {
-        onDispose { progress.snapTo(1f) }
+        onDispose { coroutineScope.launch { progress.snapTo(1f) } }
     }
 
     Canvas(modifier = Modifier.fillMaxSize()) {

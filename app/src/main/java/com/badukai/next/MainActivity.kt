@@ -28,47 +28,47 @@ class MainActivity : ComponentActivity() {
 
             BadukNextTheme(theme = state.currentTheme) {
                 GameScreen(
-                state = state,
-                onBoardTap = viewModel::onBoardTap,
-                onPass = viewModel::pass,
-                onResign = viewModel::resign,
-                onTerritoryEstimate = viewModel::toggleTerritoryOverlay,
-                onForceEndGame = viewModel::forceEndGame,
-                onUndo = viewModel::undo,
-                onNewGame = viewModel::showNewGameDialog,
-                onStartNewGame = viewModel::startNewGame,
-                onDismissNewGame = viewModel::hideNewGameDialog,
-                onShowModelSelector = viewModel::showModelSelector,
-                onSelectModel = viewModel::selectModel,
-                onDismissModelSelector = viewModel::hideModelSelector,
-                onShowSettings = viewModel::showSettingsDialog,
-                onDismissSettings = viewModel::hideSettingsDialog,
-                onToggleCoordinates = viewModel::toggleCoordinates,
-                onToggleSound = viewModel::toggleSound,
-                onSetTheme = viewModel::setTheme,
-                onSetGameMode = viewModel::setGameMode,
-                onSetPlacementMode = viewModel::setPlacementMode,
-                onSetAnimation = viewModel::setStoneAnimation,
-                onToggleEye = viewModel::toggleEyeOverlay,
-                onSetAiMoveTime = viewModel::setAiMoveTime,
-                onSetAiCanResign = viewModel::setAiCanResign,
-                onSaveSgf = viewModel::saveGameAsSgf,
-                onShowSavedGames = viewModel::showSavedGamesDialog,
-                onDismissSavedGames = viewModel::dismissSavedGamesDialog,
-                onLoadSgf = viewModel::loadSavedGame,
-                onDismissCelebration = viewModel::dismissCelebration,
-                onAnalysisPrev = viewModel::analysisPrev,
-                onAnalysisNext = viewModel::analysisNext,
-                onAnalysisJump = viewModel::navigateToMove,
-                onConfirmMove = viewModel::confirmMove,
-                onCancelMove = viewModel::cancelMove,
-                onSetPlaceSound = viewModel::setPlaceSoundIndex,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .systemBarsPadding()
-            )
+                    state = state,
+                    onBoardTap = viewModel::onBoardTap,
+                    onPass = viewModel::pass,
+                    onResign = viewModel::resign,
+                    onTerritoryEstimate = viewModel::toggleTerritoryOverlay,
+                    onForceEndGame = viewModel::forceEndGame,
+                    onUndo = viewModel::undo,
+                    onNewGame = viewModel::showNewGameDialog,
+                    onStartNewGame = viewModel::startNewGame,
+                    onDismissNewGame = viewModel::hideNewGameDialog,
+                    onShowModelSelector = viewModel::showModelSelector,
+                    onSelectModel = viewModel::selectModel,
+                    onDismissModelSelector = viewModel::hideModelSelector,
+                    onShowSettings = viewModel::showSettingsDialog,
+                    onDismissSettings = viewModel::hideSettingsDialog,
+                    onToggleCoordinates = viewModel::toggleCoordinates,
+                    onToggleSound = viewModel::toggleSound,
+                    onSetTheme = viewModel::setTheme,
+                    onSetGameMode = viewModel::setGameMode,
+                    onSetPlacementMode = viewModel::setPlacementMode,
+                    onSetAnimation = viewModel::setStoneAnimation,
+                    onToggleEye = viewModel::toggleEyeOverlay,
+                    onSetAiMoveTime = viewModel::setAiMoveTime,
+                    onSetAiCanResign = viewModel::setAiCanResign,
+                    onSaveSgf = viewModel::saveGameAsSgf,
+                    onShowSavedGames = viewModel::showSavedGamesDialog,
+                    onDismissSavedGames = viewModel::dismissSavedGamesDialog,
+                    onLoadSgf = viewModel::loadSavedGame,
+                    onDismissCelebration = viewModel::dismissCelebration,
+                    onAnalysisPrev = viewModel::analysisPrev,
+                    onAnalysisNext = viewModel::analysisNext,
+                    onAnalysisJump = viewModel::navigateToMove,
+                    onConfirmMove = viewModel::confirmMove,
+                    onCancelMove = viewModel::cancelMove,
+                    onSetPlaceSound = viewModel::setPlaceSoundIndex,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .systemBarsPadding()
+                )
+            }
         }
-    }
 
     override fun onStart() {
         super.onStart()
