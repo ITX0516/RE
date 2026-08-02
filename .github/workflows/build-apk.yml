@@ -77,21 +77,19 @@ jobs:
           # -------- P0-d: Python 3.7 runtime (scripts removed upstream) --------
           prune $DST/jniLibs/arm64-v8a/libpython3.7m.so
 
-          # -------- P1-a: SNPE family (12 so / ~93MB) --------------------------
-          # Evidence: 0 com.qualcomm.qti.snpe.* in Kotlin; gtp_static.cfg only
-          # declares openclDeviceToUseThread0=0 (pure OpenCL backend, NO SNPE).
-          prune $DST/jniLibs/arm64-v8a/libSnpeHtpPrepare.so
-          prune $DST/jniLibs/arm64-v8a/libSNPE.so
-          prune $DST/jniLibs/arm64-v8a/libSnpeDspV66Stub.so
-          prune $DST/jniLibs/arm64-v8a/libSnpeHta.so
-          prune $DST/jniLibs/arm64-v8a/libSnpeHtpV81Stub.so
-          prune $DST/jniLibs/arm64-v8a/libSnpeHtpV79Stub.so
-          prune $DST/jniLibs/arm64-v8a/libSnpeHtpV75Stub.so
-          prune $DST/jniLibs/arm64-v8a/libSnpeHtpV73Stub.so
-          prune $DST/jniLibs/arm64-v8a/libSnpeHtpV69Stub.so
-          prune $DST/jniLibs/arm64-v8a/libSnpeHtpV68Stub.so
-          prune $DST/jniLibs/arm64-v8a/libhta_hexagon_runtime_snpe.so
-          prune $DST/jniLibs/arm64-v8a/libtensorflowlite.so  # 0 tflite Java refs either
+          # -------- P1-a: DO NOT prune SNPE/TFLite — REVERTED 2026-08-02
+          #   FATAL LESSON: libkatago.so declares DT_NEEDED on BOTH libSNPE.so AND
+          #   libtensorflowlite.so (confirmed via readelf -d). The Android dynamic
+          #   linker requires EVERY NEEDED library to be resolveable BEFORE main()
+          #   runs — even if the cfg selects OpenCL at runtime (which happens AFTER
+          #   load). Missing either one produces:
+          #     CANNOT LINK EXECUTABLE "...libkatago.so": libSNPE.so not found
+          #   which manifests to the user as generic "Failed to start AI".
+          #   Cost: keeps ~93MB (libSnpeHtpPrepare 67MB + libSNPE 18MB +
+          #   libtensorflowlite 2.8MB + 10 stubs/hta). This is why the original
+          #   (working) APK installed ~220MB; the "14.7MB shrink success" build
+          #   was actually unrunnable because the linker rejected it outright.
+          echo "P1-a REVERTED: keeping libSNPE.so + libtensorflowlite.so + 10 SNPE stubs + HTA runtime in jniLibs"
 
           # -------- P1-b: QNN family (17 so / ~86MB) ---------------------------
           # Evidence: cfg only OpenCL backend, 0 com.qualcomm.qti.qnn.* in Kotlin

@@ -137,26 +137,37 @@ stage P0-d "Drop Python runtime (investigation scripts removed commit 2df2a27)"
 prune "$DST_APP/jniLibs/arm64-v8a/libpython3.7m.so"
 
 # ================================================================
-# Stage P1-a — SNPE (Qualcomm Snapdragon NPE) 12 .so / ~93MB
-#   0 com.qualcomm.qti.snpe.* in Kotlin, and gtp_static.cfg only
-#   declares openclDeviceToUseThread0=0 (pure OpenCL backend, no SNPE).
-#   Two 67MB giants (libSnpeHtpPrepare) + libSNPE + 8 stubs/hta.
+# Stage P1-a — KEEP SNPE + TFLite family (12 so / ~93MB) — REVERTED 2026-08-02
+#
+#   FATAL LESSON (2026-08-02):
+#   libkatago.so's ELF header declares DT_NEEDED on BOTH libSNPE.so AND
+#   libtensorflowlite.so — confirmed with `readelf -d libkatago.so | grep NEEDED`.
+#   If either is missing, the Android dynamic linker (/system/bin/linker64)
+#   REFUSES to even enter main():
+#
+#       CANNOT LINK EXECUTABLE "/data/app/.../lib/arm64/libkatago.so": \
+#         library "libSNPE.so" not found
+#
+#   This manifests to the user as a generic "Failed to start AI" toast no
+#   matter how many launch plans we try. Even though gtp_static.cfg only
+#   selects OpenCL (openclDeviceToUseThread0=0) at runtime — ELF NEEDED is
+#   load-time, not runtime. Every NEEDED entry MUST be satisfied before
+#   a single instruction of main() runs.
+#
+#   Cost: keeps ~93MB of jniLibs inside APK. This is why the original
+#   (working) APK weighed ~220MB installed; the 14.7MB "shrink success"
+#   build was simply not loadable by the linker.
+#
+#   Subset kept (all 12 upstream):
+#     libSnpeHtpPrepare.so (67MB  —  HTP graph prepare, dlopen'd by libSNPE.so)
+#     libSNPE.so           (18MB  —  NEEDED by libkatago.so)
+#     libtensorflowlite.so (2.8MB —  NEEDED by libkatago.so)
+#     libSnpeDspV66Stub.so / libSnpeHta.so
+#     libSnpeHtpV{68,69,73,75,79,81}Stub.so
+#     libhta_hexagon_runtime_snpe.so
 # ================================================================
-stage P1-a "DROP SNPE family (12 so / ~93MB): pure OpenCL cfg, 0 SNPE Java refs"
-prune "$DST_APP/jniLibs/arm64-v8a/libSnpeHtpPrepare.so"          # 67MB — HTP graph prepare
-prune "$DST_APP/jniLibs/arm64-v8a/libSNPE.so"                    # 18MB — top-level runtime
-prune "$DST_APP/jniLibs/arm64-v8a/libSnpeDspV66Stub.so"          # 1.5MB
-prune "$DST_APP/jniLibs/arm64-v8a/libSnpeHta.so"                  # 959KB
-prune "$DST_APP/jniLibs/arm64-v8a/libSnpeHtpV81Stub.so"          # 581KB
-prune "$DST_APP/jniLibs/arm64-v8a/libSnpeHtpV79Stub.so"          # 525KB
-prune "$DST_APP/jniLibs/arm64-v8a/libSnpeHtpV75Stub.so"          # 525KB
-prune "$DST_APP/jniLibs/arm64-v8a/libSnpeHtpV73Stub.so"          # 525KB
-prune "$DST_APP/jniLibs/arm64-v8a/libSnpeHtpV69Stub.so"          # 519KB
-prune "$DST_APP/jniLibs/arm64-v8a/libSnpeHtpV68Stub.so"          # 519KB
-prune "$DST_APP/jniLibs/arm64-v8a/libhta_hexagon_runtime_snpe.so" # 2.3MB
-# TFLite runtime itself — also dead because no Java class references
-# (com.google.tensorflow.lite / interpreter) 0 hits in repo.
-prune "$DST_APP/jniLibs/arm64-v8a/libtensorflowlite.so"          # 2.8MB
+stage P1-a "REVERTED: KEEP SNPE + TFLite family (12 so) — libkatago NEEDED them at ELF load-time"
+echo "  (no-op: keeping libSNPE.so + libtensorflowlite.so + 10 stubs/hta in jniLibs/arm64-v8a)"
 
 # ================================================================
 # Stage P1-b — QNN (Qualcomm AI Engine Direct) 17 .so / ~86MB
