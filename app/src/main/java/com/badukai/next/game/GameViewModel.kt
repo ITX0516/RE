@@ -920,7 +920,7 @@ class GameViewModel : ViewModel() {
     /** Export current game to an SGF file in the app's external files dir. */
     fun saveGameAsSgf(): String? {
         val ctx = appContext ?: return null
-        val moves = recorder.getMoves()
+        val moves = recorder.getMoves().map { it.move }
         if (moves.isEmpty()) return null
         val sgf = com.badukai.next.sgf.SgfUtil.exportSgf(moves, _state.value.boardSize, _state.value.komi)
         return try {
