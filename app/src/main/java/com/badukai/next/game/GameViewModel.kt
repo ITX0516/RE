@@ -199,10 +199,12 @@ class GameViewModel : ViewModel() {
     private fun freePlaceStone(point: Point) {
         val s = _state.value
         if (!s.board.isLegalMove(point, freeStoneColor)) return
-        s.board.playMove(Move.Stone(point, freeStoneColor))
         val color = freeStoneColor
+        s.board.playMove(Move.Stone(point, color))
         freeStoneColor = freeStoneColor.opposite()
+        if (s.soundEnabled) soundPlayer?.playPlace()
         _state.value = s.copy(
+            currentPlayer = freeStoneColor,  // correct perspective for analysis
             lastMovePoint = point,
             capturedByBlack = s.board.getCapturedWhite(),
             capturedByWhite = s.board.getCapturedBlack()
@@ -451,17 +453,21 @@ class GameViewModel : ViewModel() {
     fun pass() {
         val s = _state.value
         if (!s.isPlayerTurn || s.isThinking) return
-        val m = Move.Pass(s.currentPlayer)
+        val passer = s.currentPlayer
+        val m = Move.Pass(passer)
         s.board.playMove(m)
         recorder.recordMove(m)
-        viewModelScope.launch { engine?.playMove(s.currentPlayer.toGtp(), "pass") }
-        if (s.board.isGameOver) { handleGameEnd(); return }
+        val isGameOver = s.board.isGameOver
         _state.value = s.copy(
-            currentPlayer = s.currentPlayer.opposite(), isPlayerTurn = false,
-            lastMovePoint = null, gameMessage = "You passed. AI thinking...",
+            currentPlayer = passer.opposite(), isPlayerTurn = false,
+            lastMovePoint = null, gameMessage = if (isGameOver) "Passed" else "You passed. AI thinking...",
             analysisMoves = recorder.rebuildAnalysisMoves()
         )
-        requestAiMove()
+        viewModelScope.launch {
+            // Sync engine pass BEFORE final_score / next genmove
+            engine?.playMove(passer.toGtp(), "pass")
+            if (isGameOver) handleGameEnd() else requestAiMove()
+        }
     }
 
     fun resign() {
@@ -534,8 +540,25 @@ class GameViewModel : ViewModel() {
     fun toggleTerritoryOverlay() {
         val s = _state.value
         val newVal = !s.showTerritoryOverlay
-        if (newVal) estimateScore()
-        _state.value = s.copy(showTerritoryOverlay = newVal, showTerritoryDialog = newVal)
+        if (newVal) {
+            // Compute heuristic ownership synchronously so the board colors immediately
+            val ownership = computeHeuristicOwnership(s.board)
+            val (blackTerr, whiteTerr) = countTerritoryFromOwnership(ownership, s.boardSize)
+            val blackScore = blackTerr + s.board.getCapturedWhite().toFloat()
+            val whiteScore = whiteTerr + s.board.getCapturedBlack().toFloat() + s.komi
+            val diff = blackScore - whiteScore
+            val scoreLine = if (diff >= 0) "Heuristic: B+${"%.1f".format(diff)}" else "Heuristic: W+${"%.1f".format(-diff)}"
+            _state.value = s.copy(
+                showTerritoryOverlay = true,
+                showTerritoryDialog = true,
+                ownership = ownership,
+                territoryResult = scoreLine
+            )
+            // Refresh winrate in background
+            requestAnalysis()
+        } else {
+            _state.value = s.copy(showTerritoryOverlay = false, showTerritoryDialog = false)
+        }
     }
     fun hideTerritoryDialog() { _state.value = _state.value.copy(showTerritoryDialog = false, territoryResult = "") }
 

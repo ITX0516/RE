@@ -293,7 +293,7 @@ private fun PlayButtonRow(
         IconBtn("\u21BA", "Undo", onClick = onUndo, enabled = state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() >= 2)
         IconBtn("\u23ED", "Pass", onClick = onPass, enabled = state.isPlayerTurn && !state.isThinking && state.isEngineReady)
         IconBtn("\u2691", "Resign", onClick = onResign, enabled = state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() > 0)
-        IconBtn("\u25CE", "Score", onClick = onTerritoryEstimate, enabled = state.isEngineReady)
+        IconBtn("\u25CE", "Score", onClick = onTerritoryEstimate, enabled = true)
     }
 }
 
@@ -325,19 +325,22 @@ private fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> U
         IconButton(onClick = onNext, enabled = state.analysisMoveIndex < state.analysisMoves.size, modifier = Modifier.size(32.dp)) {
             Text("\u25B6", fontSize = 16.sp, color = if (state.analysisMoveIndex < state.analysisMoves.size) colors.TextPrimary else colors.ButtonDisabledText)
         }
-        // 👁️ Replay analysis toggle — only in analyze mode
+        // "Eye" replay toggle — text button, only in analyze mode
         if (state.gameMode == GameMode.ANALYZE) {
-            val eyeColor = if (state.showEyeOverlay) colors.Accent else colors.TextSecondary
             Box(
                 modifier = Modifier
-                    .padding(start = 4.dp)
-                    .size(30.dp)
+                    .padding(start = 6.dp)
                     .clip(RoundedCornerShape(6.dp))
-                    .background(if (state.showEyeOverlay) colors.AccentLight else colors.SurfaceVariant)
-                    .clickable(onClick = onToggleEye),
+                    .background(if (state.showEyeOverlay) colors.Accent else colors.SurfaceVariant)
+                    .clickable(onClick = onToggleEye)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text("\uD83D\uDC41", fontSize = 14.sp, color = eyeColor) // 👁
+                Text(
+                    "Eye",
+                    color = if (state.showEyeOverlay) colors.TextOnAccent else colors.TextPrimary,
+                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold
+                )
             }
         }
     }
@@ -363,7 +366,7 @@ private fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> U
     ) {
         when (selectedTab) {
             AnalysisTab.MOVE_TREE -> MoveTreeContent(state, onJumpToMove)
-            AnalysisTab.CHART -> WinrateChartContent(state.winrateHistory, state.scoreLeadHistory)
+            AnalysisTab.CHART -> WinrateChartContent(state.winrateHistory, state.scoreLeadHistory, state.analysisMoveIndex)
             AnalysisTab.CANDIDATES -> CandidatesPlaceholder(state.candidateInfo)
         }
     }
@@ -407,19 +410,19 @@ private fun ChartPlaceholder() {
 }
 
 @Composable
-private fun WinrateChartContent(winrateHistory: List<Float>, scoreLeadHistory: List<Float>) {
+private fun WinrateChartContent(winrateHistory: List<Float>, scoreLeadHistory: List<Float>, moveIndex: Int = 0) {
     val colors = BadukNextColors
     var chartType by remember { mutableStateOf("wr") }
 
     if (winrateHistory.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No analysis data", color = colors.TextSecondary, fontSize = 11.sp)
+            Text("No analysis data", color = colors.TextSecondary, fontSize = 13.sp)
         }
         return
     }
 
-    Canvas(modifier = Modifier.fillMaxSize().padding(6.dp)) {
-        val w = size.width; val h = size.height; val pad = 30f
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val w = size.width; val h = size.height; val pad = 24f
         val cw = w - 2 * pad; val ch = h - 2 * pad
 
         // Grid
@@ -431,10 +434,10 @@ private fun WinrateChartContent(winrateHistory: List<Float>, scoreLeadHistory: L
         drawLine(gridColor, start = Offset(pad, pad), end = Offset(pad, h - pad), strokeWidth = 1f)
         drawLine(gridColor, start = Offset(pad, h - pad), end = Offset(w - pad, h - pad), strokeWidth = 1f)
 
-        // Axis labels
+        // Axis labels (bigger)
         val labelPaint = Paint().apply {
             color = colors.TextSecondary.toArgb()
-            textSize = 9f
+            textSize = 12f
             isAntiAlias = true
         }
         val totalMoves = if (chartType == "wr") winrateHistory.size else scoreLeadHistory.size
@@ -455,6 +458,18 @@ private fun WinrateChartContent(winrateHistory: List<Float>, scoreLeadHistory: L
                     c.nativeCanvas.drawText(num, x - 4f, h - 4f, labelPaint)
                 }
             }
+        }
+
+        // Red vertical line at current move position
+        if (totalMoves > 1) {
+            val idx = moveIndex.coerceIn(0, totalMoves)
+            val x = pad + (idx.toFloat() / totalMoves) * cw
+            drawLine(
+                color = Color(0xFFE53935),
+                start = Offset(x, pad),
+                end = Offset(x, h - pad),
+                strokeWidth = 2f
+            )
         }
 
         when (chartType) {
