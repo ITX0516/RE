@@ -19,7 +19,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.badukai.next.engine.KataGoEngine
-import com.badukai.next.game.GameTheme
 import com.badukai.next.game.PlacementMode
 import com.badukai.next.game.StoneAnimation
 

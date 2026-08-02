@@ -20,7 +20,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.badukai.next.game.GameMode
 import com.badukai.next.game.GameState
-import com.badukai.next.game.GameTheme
 import com.badukai.next.game.PlacementMode
 import com.badukai.next.game.StoneAnimation
 import com.badukai.next.game.StoneColor
