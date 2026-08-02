@@ -85,8 +85,9 @@ echo "==> Copying jniLibs/arm64-v8a from $SRC_APP"
 copy_dir "$SRC_APP/jniLibs/arm64-v8a"       "$DST_APP/jniLibs/arm64-v8a"
 
 echo ""
-echo "==> Pruning unused jniLibs & duplicate assets (APK shrink P0)"
-echo "    (root causes / evidence: see APK_SHRINK_PROOF.md in PR)"
+echo "==> Pruning unused jniLibs (APK shrink P0, hotfix-safe)"
+echo "    libkatago.so is KEPT in BOTH assets/ AND jniLibs/ for start-engine fallback"
+echo "    (runtime tries jniLibs first; falls back to assets copy if exec is blocked)"
 
 # ---- 1) KataGo mutually exclusive variant builds -----------------------------
 # KataGoEngine hardcodes BINARY_NAME="libkatago.so" only (0 references to
@@ -121,16 +122,9 @@ rm -fv "$DST_APP/jniLibs/arm64-v8a/libSDL2_ttf.so"     || true
 # to remove the libpython native runtime (pure leftover).
 rm -fv "$DST_APP/jniLibs/arm64-v8a/libpython3.7m.so"   || true
 
-# ---- 5) Remove duplicate assets/libkatago.so ---------------------------------
-# KataGoEngine now uses context.applicationInfo.nativeLibraryDir/libkatago.so
-# directly (comes from jniLibs), so the assets copy is redundant.
-# This kills the 1st copy of the "three copies problem" (APK/assets, APK/jniLibs,
-# /data/data/.../files/libkatago.so).
-rm -fv "$DST_APP/assets/libkatago.so" || true
-
 echo ""
 echo "==> Summary"
-echo "assets/libkatago.so:  $(ls -lh "$DST_APP/assets/libkatago.so"    2>/dev/null | awk '{print $5}' || echo REMOVED)"
+echo "assets/libkatago.so:  $(ls -lh "$DST_APP/assets/libkatago.so"    2>/dev/null | awk '{print $5}' || echo MISSING)"
 echo "assets/gtp_static.cfg: $(ls -lh "$DST_APP/assets/gtp_static.cfg" 2>/dev/null | awk '{print $5}' || echo MISSING)"
 echo "assets/models:         $(find "$DST_APP/assets/models" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ') files"
 echo "jniLibs/arm64-v8a:    $(find "$DST_APP/jniLibs/arm64-v8a"   -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ') .so files"

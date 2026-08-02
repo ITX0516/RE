@@ -47,10 +47,12 @@ jobs:
           du -sh app/src/main/assets/*/ 2>/dev/null || echo "no subdirs"
 
           # =========================================================
-          # APK SHRINK P0 — CI double-check (belt & suspenders)
-          # setup-from-badukai.sh already does the pruning; re-run the
-          # same deletions here so any future accidental revert of the
-          # shell script cannot re-inflate the APK.
+          # APK SHRINK P0 + HOTFIX SAFE (belt & suspenders) — CI re-runs
+          # the same pruning as setup-from-badukai.sh so any future
+          # accidental revert of the shell script cannot re-inflate.
+          # IMPORTANT: assets/libkatago.so is NOW PRESERVED (we need it
+          # for fall-back engine start path if direct exec of jniLibs
+          # is blocked by SELinux / noexec mount on user devices).
           # =========================================================
           DST=app/src/main
           prune() { rm -fv "$@" || true; }
@@ -77,11 +79,12 @@ jobs:
           # 4) Python runtime (upstream already removed .py scripts)
           prune $DST/jniLibs/arm64-v8a/libpython3.7m.so
 
-          # 5) Duplicate assets/libkatago.so (engine uses jniLibs version directly now)
-          prune $DST/assets/libkatago.so
+          # DO NOT prune assets/libkatago.so any more — kept as engine start fallback
 
           echo "=== Post-prune .so TOP 20 by size ==="
           find app/src/main -name "*.so" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}' | sort -rh | head -20
+          echo "=== assets/libkatago.so present? ==="
+          ls -la app/src/main/assets/libkatago.so 2>/dev/null || echo "MISSING (engine fallback copy not available!)"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3

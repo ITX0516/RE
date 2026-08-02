@@ -46,11 +46,12 @@ android {
 
     packaging {
         jniLibs {
-            // Modern packaging: AGP stores .so page-aligned but zlib-compressed inside the
-            // APK; the system mmaps them at install time WITHOUT extracting to app-lib.
-            // Combined with extractNativeLibs=false in AndroidManifest this cuts ~30-40% of
-            // the INSTALLED footprint vs legacy "APK stored + extract copy".
-            useLegacyPackaging = false
+            // HOTFIX 2026-08-02: Keep legacy packaging. Combined with
+            // extractNativeLibs=true in AndroidManifest this is the most
+            // compatible combo (system fully extracts .so and they can be
+            // exec'd or loaded directly). We'll migrate to non-legacy once
+            // engine start is proven on all devices.
+            useLegacyPackaging = true
             pickFirsts += listOf(
                 "lib/arm64-v8a/libc++_shared.so"
             )

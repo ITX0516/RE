@@ -21,6 +21,22 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * KataGo engine wrapper that handles communication with the native KataGo process
  * via GTP (Go Text Protocol)
+ *
+ * ENGINE START LIFECYCLE (3-path fallback, hotfix 2026-08-02):
+ *
+ *   Path A — Direct exec of jniLibs copy via /system/bin/linker64 loader
+ *     + Best: no extra copy, minimal installed size
+ *     - Sometimes blocked by SELinux/noexec mount on data/app-lib
+ *
+ *   Path B — Copy assets/libkatago.so → filesDir + exec via linker64
+ *     + Uses app-private files/ dir (exec is almost always permitted there)
+ *     - Costs one extra copy on disk (size trade-off for stability)
+ *
+ *   Path C — Direct exec of filesDir copy WITHOUT linker64 (PIE binary case)
+ *     + Some devices don't expose linker64 at /system/bin/linker64
+ *
+ *   Each path probes: if process dies within 2s or throws IOException, we
+ *   record the failure in AppLogger and proceed to the next path.
  */
 class KataGoEngine(private val context: Context) {
 
@@ -28,6 +44,11 @@ class KataGoEngine(private val context: Context) {
         private const val TAG = "KataGoEngine"
         private const val BINARY_NAME = "libkatago.so"
         private const val CONFIG_NAME = "gtp_static.cfg"
+        private val LINKER64_CANDIDATES = listOf(
+            "/system/bin/linker64",
+            "/apex/com.android.runtime/bin/linker64",
+            "/system/bin/linker_android64"
+        )
     }
 
     private val _isReady = MutableStateFlow(false)
@@ -65,110 +86,234 @@ class KataGoEngine(private val context: Context) {
             return@withContext true
         }
 
-        AppLogger.i(TAG, "=== PATCHED KATAGO ENGINE ===")
+        AppLogger.i(TAG, "=== PATCHED KATAGO ENGINE (3-path start hotfix) ===")
 
-        try {
-            val filesDir = context.filesDir
-            val nativeLibDir = File(context.applicationInfo.nativeLibraryDir)
+        // ---- Preconditions: directories + model ----------------------------------
+        val filesDir = context.filesDir
+        val nativeLibDir = File(context.applicationInfo.nativeLibraryDir)
 
-            val hexagonDir = File(filesDir, "hexagon")
-            if (!hexagonDir.exists()) {
-                hexagonDir.mkdirs()
-                AppLogger.i(TAG, "Created hexagon directory: ${hexagonDir.absolutePath}")
-            }
+        val hexagonDir = File(filesDir, "hexagon")
+        if (!hexagonDir.exists()) {
+            hexagonDir.mkdirs()
+            AppLogger.i(TAG, "Created hexagon directory: ${hexagonDir.absolutePath}")
+        }
 
-            // Use the jniLibs binary directly — it is already unpacked / mmap'd by the
-            // system into nativeLibraryDir. This avoids copying a second identical
-            // binary from assets/ → files/ (the "3 copies problem" copy #3).
-            val binaryFile = File(nativeLibDir, BINARY_NAME)
-            if (!binaryFile.exists()) {
-                AppLogger.e(TAG, "Missing jniLibs binary: ${binaryFile.absolutePath}")
-                AppLogger.e(TAG, "nativeLibraryDir contents (first 20): ${nativeLibDir.listFiles()?.take(20)?.joinToString { it.name }}")
+        val configFile = File(filesDir, CONFIG_NAME)
+        if (!configFile.exists()) {
+            copyAssetToFile(CONFIG_NAME, configFile)
+            AppLogger.i(TAG, "Copied config file: ${configFile.absolutePath}")
+        }
+
+        if (!ModelManager.isModelAvailable(context)) {
+            AppLogger.i(TAG, "Downloading model (6b)...")
+            val result = ModelManager.downloadModel(context)
+            if (result.isFailure) {
+                AppLogger.e(TAG, "Model download failed: ${result.exceptionOrNull()?.message}")
                 return@withContext false
             }
-            AppLogger.i(TAG, "Using jniLibs binary directly: ${binaryFile.absolutePath} (size=${binaryFile.length()})")
+        }
 
-            val configFile = File(filesDir, CONFIG_NAME)
-            if (!configFile.exists()) {
-                copyAssetToFile(CONFIG_NAME, configFile)
-                AppLogger.i(TAG, "Copied config file: ${configFile.absolutePath}")
+        val modelDir = File(context.filesDir, "models")
+        val modelFile = File(modelDir, model.fileName)
+        AppLogger.i(TAG, "Model: ${modelFile.absolutePath} (exists=${modelFile.exists()}, size=${modelFile.length()})")
+        AppLogger.i(TAG, "Config: ${configFile.absolutePath} (exists=${configFile.exists()})")
+
+        // ---- Build shared environment (same for all 3 paths) -------------------
+        val envBase = mapOf(
+            "LD_LIBRARY_PATH" to "$nativeLibDir:${hexagonDir.absolutePath}:/vendor/lib64:/system/vendor/lib64",
+            "ADSP_LIBRARY_PATH" to "$nativeLibDir;${hexagonDir.absolutePath};/system/lib/rfsa/adsp;/system/vendor/lib/rfsa/adsp;/dsp",
+            "HOME" to filesDir.absolutePath
+        )
+        val gtpArgs = listOf("gtp", "-model", modelFile.absolutePath, "-config", configFile.absolutePath)
+        val linker64 = LINKER64_CANDIDATES.firstOrNull { File(it).exists() }
+        AppLogger.i(TAG, "Detected linker64: ${linker64 ?: "NONE — will also try direct PIE exec"}")
+
+        // ---- Resolve 2 binary locations (jniLibs copy, filesDir copy) ----------
+        // We check existence NOW so fallback paths are fully predictable.
+        val jniLibsBinary = File(nativeLibDir, BINARY_NAME).takeIf { it.exists() }
+        if (jniLibsBinary != null) {
+            AppLogger.i(TAG, "jniLibs binary available: ${jniLibsBinary.absolutePath} size=${jniLibsBinary.length()}")
+        } else {
+            AppLogger.w(TAG, "jniLibs binary MISSING from $nativeLibDir — is extractNativeLibs=true?")
+            AppLogger.w(TAG, "nativeLibraryDir list: ${nativeLibDir.listFiles()?.map { it.name }?.take(20)}")
+        }
+
+        // Always ensure filesDir has an up-to-date copy (needed for path B fallback
+        // and also path C). Assets copy is the source of truth for this file.
+        val filesDirBinary = File(filesDir, BINARY_NAME)
+        val assetAvailable = try {
+            context.assets.open(BINARY_NAME).close(); true
+        } catch (_: Exception) {
+            false
+        }
+        if (assetAvailable) {
+            if (!filesDirBinary.exists() || shouldUpdateBinary(filesDirBinary)) {
+                copyAssetToFile(BINARY_NAME, filesDirBinary)
+                filesDirBinary.setExecutable(true, false)
+                AppLogger.i(TAG, "Installed assets copy to filesDir: ${filesDirBinary.absolutePath} size=${filesDirBinary.length()}")
+            } else {
+                AppLogger.i(TAG, "filesDir binary up-to-date: ${filesDirBinary.absolutePath} size=${filesDirBinary.length()}")
             }
+        } else {
+            AppLogger.w(TAG, "assets/$BINARY_NAME not available in APK — cannot build Path B/Path C fallback. " +
+                "If Path A fails engine start will fail. Fix: ensure assets/libkatago.so is packaged.")
+        }
 
-            // Download 6b model if not already present
-            if (!ModelManager.isModelAvailable(context)) {
-                AppLogger.i(TAG, "Downloading model (6b)...")
-                val result = ModelManager.downloadModel(context)
-                if (result.isFailure) {
-                    AppLogger.e(TAG, "Model download failed: ${result.exceptionOrNull()?.message}")
-                    return@withContext false
+        // ---- Candidate start plans, ordered by preference -----------------------
+        data class StartPlan(
+            val label: String,
+            val binary: File?,
+            val useLinker64: Boolean
+        )
+        val plans = mutableListOf<StartPlan>()
+        // Path A1: jniLibs direct binary via explicit linker64 loader
+        if (linker64 != null && jniLibsBinary != null) {
+            plans += StartPlan("Path A1 (jniLibs + linker64)", jniLibsBinary, true)
+        }
+        // Path A2: jniLibs direct PIE exec (for devices without linker64 exposed)
+        if (jniLibsBinary != null) {
+            plans += StartPlan("Path A2 (jniLibs PIE direct)", jniLibsBinary, false)
+        }
+        // Path B1: filesDir copy via linker64 loader (most compatible fallback)
+        if (linker64 != null && filesDirBinary.exists()) {
+            plans += StartPlan("Path B1 (filesDir + linker64)", filesDirBinary, true)
+        }
+        // Path B2: filesDir copy PIE direct exec
+        if (filesDirBinary.exists()) {
+            plans += StartPlan("Path B2 (filesDir PIE direct)", filesDirBinary, false)
+        }
+
+        AppLogger.i(TAG, "Engine start plans (in order): ${plans.joinToString { it.label }}")
+        require(plans.isNotEmpty()) {
+            "No engine start plans available. Need jniLibs/libkatago.so AND/OR assets/libkatago.so packaged."
+        }
+
+        // ---- Try each plan in order --------------------------------------------
+        var lastFailureReason: String? = null
+        for ((idx, plan) in plans.withIndex()) {
+            val attempt = idx + 1
+            AppLogger.i(TAG, "--- Plan $attempt/${plans.size}: ${plan.label} ---")
+            val binary = plan.binary!!
+            if (!binary.canExecute() && plan.label.contains("PIE")) {
+                try {
+                    binary.setExecutable(true, false)
+                    AppLogger.d(TAG, "setExecutable(true) applied for PIE plan")
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "setExecutable failed for ${binary.absolutePath}: ${e.message}")
                 }
             }
+            val cmd = buildList {
+                if (plan.useLinker64) add(linker64!!)
+                add(binary.absolutePath)
+                addAll(gtpArgs)
+            }
+            AppLogger.i(TAG, "Command: ${cmd.joinToString(" ")}")
 
-            // The model is in filesDir/models/ — locate it
-            val modelDir = File(context.filesDir, "models")
-            val modelFile = File(modelDir, model.fileName)
-
-            AppLogger.i(TAG, "Model: ${modelFile.absolutePath} (exists=${modelFile.exists()}, size=${modelFile.length()})")
-            AppLogger.i(TAG, "Config: ${configFile.absolutePath} (exists=${configFile.exists()})")
-
-            val command = listOf(
-                binaryFile.absolutePath,
-                "gtp",
-                "-model", modelFile.absolutePath,
-                "-config", configFile.absolutePath
-            )
-            AppLogger.i(TAG, "Command: ${command.joinToString(" ")}")
-
-            val builder = ProcessBuilder(command)
-            builder.directory(hexagonDir)
-
-            val env = builder.environment()
-            env["LD_LIBRARY_PATH"] = "$nativeLibDir:${hexagonDir.absolutePath}:/vendor/lib64:/system/vendor/lib64"
-            env["ADSP_LIBRARY_PATH"] = "$nativeLibDir;${hexagonDir.absolutePath};/system/lib/rfsa/adsp;/system/vendor/lib/rfsa/adsp;/dsp"
-            env["HOME"] = filesDir.absolutePath
-
-            AppLogger.i(TAG, "Environment:")
-            AppLogger.i(TAG, "  LD_LIBRARY_PATH=${env["LD_LIBRARY_PATH"]}")
-            AppLogger.i(TAG, "  ADSP_LIBRARY_PATH=${env["ADSP_LIBRARY_PATH"]}")
-            AppLogger.i(TAG, "  HOME=${env["HOME"]}")
-            AppLogger.i(TAG, "  Working dir=${hexagonDir.absolutePath}")
-
-            AppLogger.i(TAG, "Launching process...")
-            process = builder.start()
-
-            writer = BufferedWriter(OutputStreamWriter(process!!.outputStream))
-            reader = BufferedReader(InputStreamReader(process!!.inputStream))
-            errorReader = BufferedReader(InputStreamReader(process!!.errorStream))
-
-            delay(2000)
-
-            val alive = process?.isAlive ?: false
-            val exitCode = try { process?.exitValue() } catch (e: IllegalThreadStateException) { null }
-            AppLogger.i(TAG, "Process alive: $alive, exitCode: $exitCode")
-
-            if (!alive) {
-                val error = errorReader?.readText() ?: ""
-                val output = reader?.readText() ?: ""
-                AppLogger.e(TAG, "Process died immediately!")
-                AppLogger.e(TAG, "Stderr: $error")
-                AppLogger.e(TAG, "Stdout: $output")
-                return@withContext false
+            val result = try {
+                runOnce(cmd, envBase, hexagonDir)
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Plan $attempt/${plans.size} exception: ${e::class.java.simpleName} ${e.message}")
+                lastFailureReason = "$label exception: ${e.message}"
+                null
             }
 
-            isRunning.set(true)
-            currentModel = model.fileName
-            _isReady.value = true
-            startReaderJob()
-            startErrorReaderJob()
-
-            AppLogger.i(TAG, "=== ENGINE STARTED SUCCESSFULLY ===")
-            return@withContext true
-
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to start engine", e)
-            return@withContext false
+            if (result != null) {
+                // Plan succeeded: install the streams and mark ready
+                process = result.process
+                writer = result.writer
+                reader = result.reader
+                errorReader = result.errorReader
+                isRunning.set(true)
+                currentModel = model.fileName
+                _isReady.value = true
+                startReaderJob()
+                startErrorReaderJob()
+                AppLogger.i(TAG, "=== ENGINE STARTED SUCCESSFULLY via ${plan.label} ===")
+                return@withContext true
+            } else {
+                lastFailureReason = "${plan.label} died within 2s or never launched — see full stderr above in logcat"
+                AppLogger.e(TAG, "Plan $attempt/${plans.size} FAILED: ${plan.label}")
+                // Let GC collect the failed process streams immediately
+            }
         }
+
+        // ---- All plans exhausted ------------------------------------------------
+        AppLogger.e(TAG, "=== ALL ENGINE START PLANS FAILED ===")
+        AppLogger.e(TAG, "Final reason summary: $lastFailureReason")
+        AppLogger.e(TAG, "Diagnostics checklist for user/developer:")
+        AppLogger.e(TAG, "  • APK unzip: is assets/libkatago.so present? (needed for B fallback)")
+        AppLogger.e(TAG, "  • adb shell run-as com.badukai.next ls -l /data/app/~~*/lib/arm64/  → libkatago.so? (Path A)")
+        AppLogger.e(TAG, "  • adb shell run-as com.badukai.next ls -l files/libkatago.so  → size matches APK entry? (Path B)")
+        AppLogger.e(TAG, "  • adb shell ls -l /system/bin/linker64  → exists? (if no, only PIE-direct plans run)")
+        false
     }
+
+    /**
+     * Single-shot try-launch. Returns RunOnceResult (caller then does the 2s alive check)
+     * or null if process was dead on arrival.
+     */
+    private fun runOnce(
+        cmd: List<String>,
+        envBase: Map<String, String>,
+        workingDir: File
+    ): RunOnceResult? {
+        val builder = ProcessBuilder(cmd)
+        builder.directory(workingDir)
+        val env = builder.environment()
+        env.putAll(envBase)
+
+        AppLogger.i(TAG, "Environment:")
+        envBase.forEach { (k, v) -> AppLogger.i(TAG, "  $k=$v") }
+        AppLogger.i(TAG, "  Working dir=${workingDir.absolutePath}")
+
+        val p = builder.start()
+        val w = BufferedWriter(OutputStreamWriter(p.outputStream))
+        val r = BufferedReader(InputStreamReader(p.inputStream))
+        val er = BufferedReader(InputStreamReader(p.errorStream))
+
+        // Drain any immediate startup stderr to help diagnose link errors
+        val startupErr = StringBuilder()
+        val startNs = System.nanoTime()
+        while (System.nanoTime() - startNs < 200_000_000L && er.ready()) {
+            val line = er.readLine() ?: break
+            startupErr.append(line).append('\n')
+        }
+        if (startupErr.isNotEmpty()) {
+            AppLogger.e(TAG, "Immediate startup stderr (first 200ms):\n$startupErr")
+        }
+
+        try { Thread.sleep(2000L) } catch (_: InterruptedException) {}
+        val alive = p.isAlive
+        val exitCode = try { p.exitValue() } catch (_: IllegalThreadStateException) { null }
+        AppLogger.i(TAG, "Process alive=$alive, exitCode=$exitCode")
+
+        if (!alive) {
+            val errTail = try {
+                // Already exited — slurp whatever stderr is left to diagnose dlopen errors
+                val rest = er.readText()
+                if (rest.isNotBlank()) """| + rest else """
+            } catch (_: Exception) ""
+            val outTail = try { r.readText().take(2000) } catch (_: Exception) ""
+            AppLogger.e(TAG, "Process died immediately! exit=$exitCode")
+            if (errTail.isNotBlank()) AppLogger.e(TAG, "Stderr full:$errTail")
+            if (outTail.isNotBlank()) AppLogger.e(TAG, "Stdout head:$outTail")
+            // Clean up dead streams so caller can move to next plan
+            try { w.close() } catch (_: Exception) {}
+            try { r.close() } catch (_: Exception) {}
+            try { er.close() } catch (_: Exception) {}
+            try { p.destroyForcibly() } catch (_: Exception) {}
+            return null
+        }
+
+        return RunOnceResult(p, w, r, er)
+    }
+
+    private data class RunOnceResult(
+        val process: Process,
+        val writer: BufferedWriter,
+        val reader: BufferedReader,
+        val errorReader: BufferedReader
+    )
 
     private fun startReaderJob() {
         readerJob = scope.launch {
