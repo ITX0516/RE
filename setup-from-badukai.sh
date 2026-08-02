@@ -226,17 +226,26 @@ echo ""
 echo "==> Summary (after full shrink pipeline)"
 echo "assets/libkatago.so:   $(ls -lh "$DST_APP/assets/libkatago.so"    2>/dev/null | awk '{print $5}' || echo MISSING)"
 echo "assets/gtp_static.cfg: $(ls -lh "$DST_APP/assets/gtp_static.cfg" 2>/dev/null | awk '{print $5}' || echo MISSING)"
-echo "assets/models:         $(find "$DST_APP/assets/models" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ') files"
-deps_count=$(find "$DST_APP/assets/deps" -maxdepth 1 -name "*.so" -type f 2>/dev/null | wc -l | tr -d ' ')
+# NOTE: `find … | wc -l | tr -d ' '` wrapped with `{ find … || true; }` because
+# `set -euo pipefail` turns a non-zero exit from *any* pipeline member into a
+# script-wide fatal error. When a directory has been rmdir'd (e.g. jniLibs
+# after Stage P3) `find` exits non-zero → pipefail propagates → script dies.
+# The `|| true` inside the braces makes find always contribute exit 0 to the
+# pipe. Same pattern applied below for all |wc -l summaries.
+echo "assets/models:         $( { find "$DST_APP/assets/models" -maxdepth 1 -type f 2>/dev/null || true; } | wc -l | tr -d ' ') files"
+deps_count=$( { find "$DST_APP/assets/deps" -maxdepth 1 -name "*.so" -type f 2>/dev/null || true; } | wc -l | tr -d ' ' )
 # Use find+du instead of shell glob (avoids nullglob / empty-args problem with
 # set -euo pipefail). If no .so found, `du` returns nothing → default 0.
-deps_bytes=$(find "$DST_APP/assets/deps" -maxdepth 1 -name "*.so" -type f -print0 2>/dev/null \
+# NOTE: `{ find … || true; }` — same pipefail guard as above: when assets/deps/
+# dir itself is missing (rmdir'd earlier), `find` exits non-zero and without the
+# guard pipefail kills the whole $() subshell.
+deps_bytes=$( { find "$DST_APP/assets/deps" -maxdepth 1 -name "*.so" -type f -print0 2>/dev/null || true; } \
   | xargs -0 -r du -cb 2>/dev/null | tail -1 | awk '{print $1}')
 deps_bytes="${deps_bytes:-0}"
 [[ "$deps_bytes" =~ ^[0-9]+$ ]] || deps_bytes=0
 deps_mb=$(( deps_bytes / 1048576 ))
 echo "assets/deps/ (KataGo ld.so deps): $deps_count .so files = ${deps_mb}MB"
-jni_count=$(find "$DST_APP/jniLibs" -name "*.so" -type f 2>/dev/null | wc -l | tr -d ' ')
+jni_count=$( { find "$DST_APP/jniLibs" -name "*.so" -type f 2>/dev/null || true; } | wc -l | tr -d ' ' )
 echo "jniLibs/ .so remaining (should be 0): $jni_count"
 
 echo ""

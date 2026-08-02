@@ -140,17 +140,23 @@ jobs:
 
           echo ""
           echo "=== CI Post-prune .so TOP 20 by size ==="
-          find app/src/main -name "*.so" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}' | sort -rh | head -20
-          DEPS_COUNT=$(find app/src/main/assets/deps -maxdepth 1 -name "*.so" -type f 2>/dev/null | wc -l | tr -d ' ')
+          { find app/src/main -name "*.so" -exec ls -lh {} \; 2>/dev/null || true; } | awk '{print $5, $NF}' | sort -rh | head -20
+          # NOTE: `find … | wc -l | tr -d ' '` wrapped with `{ find … || true; }` because
+          # `set -euo pipefail` turns a non-zero exit from *any* pipeline member into a
+          # step-wide fatal error. When a directory has been rmdir'd (e.g. jniLibs
+          # after Stage P3) `find` exits non-zero → pipefail propagates → step dies.
+          # The `|| true` inside the braces makes find always contribute exit 0 to the
+          # pipe.
+          DEPS_COUNT=$( { find app/src/main/assets/deps -maxdepth 1 -name "*.so" -type f 2>/dev/null || true; } | wc -l | tr -d ' ' )
           # Use find|xargs instead of shell glob so empty dir doesn't become literal
           # "*.so" arg to du, and default to 0 if output is empty / non-numeric
           # (otherwise $(( empty / 1048576 )) syntax-error with set -e).
-          DEPS_BYTES=$(find app/src/main/assets/deps -maxdepth 1 -name "*.so" -type f -print0 2>/dev/null \
+          DEPS_BYTES=$( { find app/src/main/assets/deps -maxdepth 1 -name "*.so" -type f -print0 2>/dev/null || true; } \
             | xargs -0 -r du -cb 2>/dev/null | tail -1 | awk '{print $1}')
           DEPS_BYTES="${DEPS_BYTES:-0}"
           [[ "$DEPS_BYTES" =~ ^[0-9]+$ ]] || DEPS_BYTES=0
           DEPS_MB=$(( DEPS_BYTES / 1048576 ))
-          JNI_COUNT=$(find app/src/main/jniLibs -name "*.so" -type f 2>/dev/null | wc -l | tr -d ' ')
+          JNI_COUNT=$( { find app/src/main/jniLibs -name "*.so" -type f 2>/dev/null || true; } | wc -l | tr -d ' ' )
           echo "assets/deps KataGo ld.so deps: $DEPS_COUNT .so = ${DEPS_MB}MB"
           echo "jniLibs .so remaining (should be 0): $JNI_COUNT (vs ~180MB before P1/P2/P3)"
           echo ""
@@ -168,8 +174,11 @@ jobs:
       - name: Build Debug APK
         run: |
           echo "=== APK content estimate before build ==="
-          find app/src/main -name "*.so" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}' | sort -rh | head -20
-          find app/src/main -name "*.bin*" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}'
+          # Guard with { find || true; } — GitHub Actions bash defaults to -eo pipefail,
+          # and if app/src/main has no subdirs (shouldn't happen but belt & suspenders)
+          # we don't want the find non-zero exit to propagate up the pipe.
+          { find app/src/main -name "*.so" -exec ls -lh {} \; 2>/dev/null || true; } | awk '{print $5, $NF}' | sort -rh | head -20
+          { find app/src/main -name "*.bin*" -exec ls -lh {} \; 2>/dev/null || true; } | awk '{print $5, $NF}'
           echo "=== Building ==="
           ./gradlew assembleDebug --stacktrace --no-daemon
 
