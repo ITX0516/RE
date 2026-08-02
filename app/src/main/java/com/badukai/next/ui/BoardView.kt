@@ -202,7 +202,7 @@ fun GoBoard(
 
 // ── Territory overlay ──
 private fun DrawScope.drawTerritory(boardSize: Int, padding: Float, cellSize: Float, ownership: List<Float>) {
-    val sqSize = cellSize * 0.42f
+    val sqSize = cellSize * 0.55f
 
     for (y in 0 until boardSize) {
         for (x in 0 until boardSize) {

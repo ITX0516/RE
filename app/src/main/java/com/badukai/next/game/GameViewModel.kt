@@ -577,10 +577,13 @@ class GameViewModel : ViewModel() {
             // Compute heuristic ownership synchronously so the board colors immediately
             val ownership = computeHeuristicOwnership(s.board)
             val (blackTerr, whiteTerr) = countTerritoryFromOwnership(ownership, s.boardSize)
+            val nonZero = ownership.count { it != 0f }
             val blackScore = blackTerr + s.board.getCapturedWhite().toFloat()
             val whiteScore = whiteTerr + s.board.getCapturedBlack().toFloat() + s.komi
             val diff = blackScore - whiteScore
-            val scoreLine = if (diff >= 0) "Heuristic: B+${"%.1f".format(diff)}" else "Heuristic: W+${"%.1f".format(-diff)}"
+            val lead = if (diff >= 0) "B+${"%.1f".format(diff)}" else "W+${"%.1f".format(-diff)}"
+            val scoreLine = "$lead (B:$blackTerr W:$whiteTerr K:${s.komi})"
+            AppLogger.i(TAG, "Territory: B=$blackTerr W=$whiteTerr nonzero=$nonZero diff=$diff stones=${s.board.getMoveCount()}")
             _state.value = s.copy(
                 showTerritoryOverlay = true,
                 ownership = ownership,
