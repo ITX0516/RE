@@ -68,9 +68,8 @@ class KataGoEngine(private val context: Context) {
         AppLogger.i(TAG, "=== PATCHED KATAGO ENGINE ===")
 
         try {
-            val dataDataPath = "/data/data/${context.packageName}"
-            val filesDir = File(dataDataPath, "files")
-            val nativeLibDir = context.applicationInfo.nativeLibraryDir
+            val filesDir = context.filesDir
+            val nativeLibDir = File(context.applicationInfo.nativeLibraryDir)
 
             val hexagonDir = File(filesDir, "hexagon")
             if (!hexagonDir.exists()) {
@@ -78,12 +77,16 @@ class KataGoEngine(private val context: Context) {
                 AppLogger.i(TAG, "Created hexagon directory: ${hexagonDir.absolutePath}")
             }
 
-            val binaryFile = File(filesDir, BINARY_NAME)
-            if (!binaryFile.exists() || shouldUpdateBinary(binaryFile)) {
-                copyAssetToFile(BINARY_NAME, binaryFile)
-                binaryFile.setExecutable(true)
-                AppLogger.i(TAG, "Installed patched KataGo binary")
+            // Use the jniLibs binary directly — it is already unpacked / mmap'd by the
+            // system into nativeLibraryDir. This avoids copying a second identical
+            // binary from assets/ → files/ (the "3 copies problem" copy #3).
+            val binaryFile = File(nativeLibDir, BINARY_NAME)
+            if (!binaryFile.exists()) {
+                AppLogger.e(TAG, "Missing jniLibs binary: ${binaryFile.absolutePath}")
+                AppLogger.e(TAG, "nativeLibraryDir contents (first 20): ${nativeLibDir.listFiles()?.take(20)?.joinToString { it.name }}")
+                return@withContext false
             }
+            AppLogger.i(TAG, "Using jniLibs binary directly: ${binaryFile.absolutePath} (size=${binaryFile.length()})")
 
             val configFile = File(filesDir, CONFIG_NAME)
             if (!configFile.exists()) {
@@ -107,10 +110,8 @@ class KataGoEngine(private val context: Context) {
 
             AppLogger.i(TAG, "Model: ${modelFile.absolutePath} (exists=${modelFile.exists()}, size=${modelFile.length()})")
             AppLogger.i(TAG, "Config: ${configFile.absolutePath} (exists=${configFile.exists()})")
-            AppLogger.i(TAG, "Binary: ${binaryFile.absolutePath} (exists=${binaryFile.exists()})")
 
             val command = listOf(
-                "/system/bin/linker64",
                 binaryFile.absolutePath,
                 "gtp",
                 "-model", modelFile.absolutePath,

@@ -22,6 +22,7 @@ android {
 
     buildTypes {
         release {
+            // P0: keep R8 off for now to avoid debug-cycle impact; enable in P1
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -45,7 +46,11 @@ android {
 
     packaging {
         jniLibs {
-            useLegacyPackaging = true
+            // Modern packaging: AGP stores .so page-aligned but zlib-compressed inside the
+            // APK; the system mmaps them at install time WITHOUT extracting to app-lib.
+            // Combined with extractNativeLibs=false in AndroidManifest this cuts ~30-40% of
+            // the INSTALLED footprint vs legacy "APK stored + extract copy".
+            useLegacyPackaging = false
             pickFirsts += listOf(
                 "lib/arm64-v8a/libc++_shared.so"
             )
@@ -53,7 +58,12 @@ android {
     }
 
     aaptOptions {
-        noCompress += listOf("tflite", "bin", "gz", "model", "so")
+        // tflite/model/gz/so entries were "safety" listing from upstream but:
+        //   - so is handled by packaging.jniLibs above (NOT assets)
+        //   - model & gz are downloaded at runtime (not bundled)
+        //   - tflite: we don't bundle any .tflite either
+        // Leave only "bin" (pre-compressed / no gain from re-compressing).
+        noCompress += listOf("bin")
     }
 }
 

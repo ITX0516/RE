@@ -85,11 +85,58 @@ echo "==> Copying jniLibs/arm64-v8a from $SRC_APP"
 copy_dir "$SRC_APP/jniLibs/arm64-v8a"       "$DST_APP/jniLibs/arm64-v8a"
 
 echo ""
+echo "==> Pruning unused jniLibs & duplicate assets (APK shrink P0)"
+echo "    (root causes / evidence: see APK_SHRINK_PROOF.md in PR)"
+
+# ---- 1) KataGo mutually exclusive variant builds -----------------------------
+# KataGoEngine hardcodes BINARY_NAME="libkatago.so" only (0 references to
+# without_snpe / large_boards variants in the entire repo). These are upstream
+# pack-everything leftovers.
+rm -fv "$DST_APP/jniLibs/arm64-v8a/libkatago_without_snpe.so" || true
+rm -fv "$DST_APP/jniLibs/arm64-v8a/libkatago_large_boards_without_snpe.so" || true
+
+# ---- 2) OpenCV + photo-board-recognition pipeline --------------------------
+# Evidence the app never uses this:
+#   - AndroidManifest.xml has NO CAMERA permission (required for capture)
+#   - No UI entry point for "photo import" / camera (GameScreen / Dialogs all reviewed)
+#   - 0 references to imgToSgf / opencv / Bitmap Mat in Kotlin sources
+rm -fv "$DST_APP/jniLibs/arm64-v8a/libopencv_core.so"        || true
+rm -fv "$DST_APP/jniLibs/arm64-v8a/libopencv_imgproc.so"     || true
+rm -fv "$DST_APP/jniLibs/arm64-v8a/libopencv_imgcodecs.so"   || true
+rm -fv "$DST_APP/jniLibs/arm64-v8a/libopencv_features2d.so"  || true
+rm -fv "$DST_APP/jniLibs/arm64-v8a/libopencv_flann.so"       || true
+rm -fv "$DST_APP/jniLibs/arm64-v8a/libimgToSgf.so"            || true
+rm -fv "$DST_APP/jniLibs/arm64-v8a/libhidapi.so"              || true
+
+# ---- 3) SDL family -----------------------------------------------------------
+# App UI is 100% Jetpack Compose -> Canvas (BoardView.kt), audio is via
+# Android SoundPool (StoneSoundPlayer.kt). SDL is unused.
+rm -fv "$DST_APP/jniLibs/arm64-v8a/libSDL2.so"         || true
+rm -fv "$DST_APP/jniLibs/arm64-v8a/libSDL2_image.so"   || true
+rm -fv "$DST_APP/jniLibs/arm64-v8a/libSDL2_mixer.so"   || true
+rm -fv "$DST_APP/jniLibs/arm64-v8a/libSDL2_ttf.so"     || true
+
+# ---- 4) Python 3.7 runtime ---------------------------------------------------
+# Upstream commit 2df2a27 already deleted investigation .py scripts but forgot
+# to remove the libpython native runtime (pure leftover).
+rm -fv "$DST_APP/jniLibs/arm64-v8a/libpython3.7m.so"   || true
+
+# ---- 5) Remove duplicate assets/libkatago.so ---------------------------------
+# KataGoEngine now uses context.applicationInfo.nativeLibraryDir/libkatago.so
+# directly (comes from jniLibs), so the assets copy is redundant.
+# This kills the 1st copy of the "three copies problem" (APK/assets, APK/jniLibs,
+# /data/data/.../files/libkatago.so).
+rm -fv "$DST_APP/assets/libkatago.so" || true
+
+echo ""
 echo "==> Summary"
-echo "assets/libkatago.so:  $(ls -lh "$DST_APP/assets/libkatago.so"    2>/dev/null | awk '{print $5}' || echo MISSING)"
+echo "assets/libkatago.so:  $(ls -lh "$DST_APP/assets/libkatago.so"    2>/dev/null | awk '{print $5}' || echo REMOVED)"
 echo "assets/gtp_static.cfg: $(ls -lh "$DST_APP/assets/gtp_static.cfg" 2>/dev/null | awk '{print $5}' || echo MISSING)"
 echo "assets/models:         $(find "$DST_APP/assets/models" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ') files"
 echo "jniLibs/arm64-v8a:    $(find "$DST_APP/jniLibs/arm64-v8a"   -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ') .so files"
+echo ""
+echo "==> Post-prune top .so sizes (largest first)"
+find "$DST_APP" -name "*.so" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}' | sort -rh | head -20
 
 echo ""
 echo "Done. Now run:  ./gradlew assembleDebug"

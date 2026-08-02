@@ -16,7 +16,7 @@
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.BadukNext"
-        android:extractNativeLibs="true"
+        android:extractNativeLibs="false"
         tools:targetApi="34">
 
         <activity
