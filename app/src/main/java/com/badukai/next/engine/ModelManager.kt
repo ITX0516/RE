@@ -11,6 +11,22 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStreamReader
 
+// Where the KataGo neural-net weights come from — one selection enum shared by
+// SettingsStore (persistence), UI (SettingsDialog radio rows), ViewModel
+// (source-aware engine start), and engine preflight.
+//
+//   BUNDLED_ASSET — 6b shipped inside the APK at assets/models/. First launch
+//                   works offline; copied to filesDir once.
+//   DOWNLOADED    — legacy online downloader from katagotraining.org.
+//   CUSTOM        — user picked a weights file via SAF ACTION_OPEN_DOCUMENT;
+//                   bytes mirrored to filesDir/models/custom/ so we always
+//                   have a readable app-private owned copy.
+enum class ModelSource(val displayName: String) {
+    BUNDLED_ASSET("内置（6b，离线可用）"),
+    DOWNLOADED("在线下载（6b）"),
+    CUSTOM("自定义文件")
+}
+
 // Downloads / validates / copies-into-place the KataGo model weights.
 //
 // 2026-08-02 EXTENDED with BUNDLED_ASSET and CUSTOM support.
@@ -140,6 +156,9 @@ object ModelManager {
                 ?.takeIf { it.isAbsolute }
                 ?: File(customDir(context), "__custom_not_set__.txt.gz")
         }
+        // else — exhaustive fallback; should be unreachable for a 3-valued enum
+        // but some strict Kotlin builds require the branch anyway.
+        else -> bundledFile(context, preferPlaintext = false)
     }
 
     // ------------------------------------------------------------------

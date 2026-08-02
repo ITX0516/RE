@@ -173,6 +173,11 @@ class KataGoEngine(private val context: Context) {
                 }
                 ModelManager.resolveModelFile(context, ModelSource.CUSTOM, customStoredPath)
             }
+            // else — exhaustive fallback; normally unreachable for 3-valued enum.
+            else -> {
+                AppLogger.e(TAG, "Unknown ModelSource=$source — cannot prepare model, start aborted")
+                return@withContext false
+            }
         }
         AppLogger.i(TAG, "Model final: ${modelFile.absolutePath} (exists=${modelFile.exists()} size=${modelFile.length()})")
         AppLogger.i(TAG, "Config final: ${configFile.absolutePath} (exists=${configFile.exists()} size=${configFile.length()})")

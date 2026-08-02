@@ -119,9 +119,11 @@ fun SettingsDialog(
                         val selected = aiModelSource == src
                         val enabled = src != ModelSource.CUSTOM || customModelDisplayName.isNotBlank()
                         val subtitle = when (src) {
-                            ModelSource.BUNDLED_ASSET -> "APK 内置 4.97MB 6b，离线首启可用"
+                            ModelSource.BUNDLED_ASSET -> "APK 内置 6b，离线首启可用"
                             ModelSource.DOWNLOADED -> "从 katagotraining.org 下载 6b（需要联网）"
                             ModelSource.CUSTOM -> if (customModelDisplayName.isNotBlank()) "当前：$customModelDisplayName" else "未导入（请点击下方按钮选择文件）"
+                            // else — exhaustive fallback; normally unreachable.
+                            else -> ""
                         }
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                             Box(
