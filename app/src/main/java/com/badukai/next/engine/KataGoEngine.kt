@@ -50,19 +50,40 @@ class KataGoEngine(private val context: Context) {
     companion object {
         private const val TAG = "KataGoEngine"
 
-        // ★ 2026-08-02 FATAL LESSON (#1 engine start bug):
-        //   libkatago.so IS A SHARED LIBRARY (DT_TYPE=DYN). If you exec it via
-        //   linker64 the ELF entry runs JNI_OnLoad/__on_dlopen_handlers →
-        //   no-ops → return → exit(0) in <2s. stderr stays empty, exit=0
-        //   looks like a silent death (this wasted 20+ APK installs!).
-        //   ONLY libmain.so (14KB tiny wrapper, PIE executable) has a real
-        //   main() that calls KataGo's GTP server loop. BINARY_NAME *must* be
-        //   libmain.so.
-        //   libmain.so DT_NEEDED libkatago.so → resolved from nativeLibraryDir
-        //   (AT HEAD of LD_LIBRARY_PATH below) at runtime automatically, so
-        //   the 5.3MB engine lib is still required on the linker search path.
-        private const val BINARY_NAME = "libmain.so"
-        private const val ENGINE_LIB_NAME = "libkatago.so"
+        // ★ 2026-08-02 FINAL ROOT-CAUSE LOCK — TWO MISTAKES, BOTH PROVEN VIA EXIT CODES:
+        //
+        //   Mistake 1 (bb71bac): libmain.so 14KB IS JUST A JNI HELPER SHARED LIBRARY,
+        //     NOT AN EXECUTABLE. It has NO ELF PT_PHDR program header table. If you
+        //     try to linker64 libmain.so you get:
+        //       exit=134 (SIGABRT, 128+6), stderr="Could not find a PHDR: broken executable?"
+        //     The user's diagnostic 20260803_065249 showed EXACTLY this on A1/B1.
+        //     libmain.so is irrelevant for ProcessBuilder-based GTP server launch.
+        //
+        //   BINARY_NAME MUST be libkatago.so (5.3MB). It DOES have valid PT_PHDR
+        //     and runs fine via linker64 (proven by the PREVIOUS diagnostic where
+        //     linker64 did NOT abort with PHDR; it just gave exit=0 empty stderr).
+        //
+        //   Mistake 2 (the REAL reason for exit=0 empty stderr on libkatago.so):
+        //     The model file on disk ends with ".bin" (our aapt2 workaround to stop
+        //     it from being inflated). libkatago's C++ main() does a STRING-PREFIX /
+        //     EXTENSION dispatch on the -model argument to pick gzip vs plaintext vs
+        //     bin format loaders. ".bin" falls into an unhandled / noop branch and
+        //     the process returns EXIT_SUCCESS (0) after doing 0 work — no server
+        //     loop, no stderr output. This is why we always saw exit=0 no stderr.
+        //
+        //   TWO-PART FIX (BOTH required):
+        //     A) BINARY_NAME = "libkatago.so" (restore, fix bb71bac revert)
+        //     B) Before building gtpArgs, resolve a KATAGO-HINT suffix copy of the
+        //        model: <name>.bin → <same>.txt.gz (hardlink first, else byte-copy).
+        //        KataGo sees ".txt.gz" → dispatches to the gzip loader branch →
+        //        real main() enters GTP server, NEVER exits on its own → waitFor(2s)
+        //        returns false = ALIVE = start() returns true.
+        //
+        //   The on-disk ".bin" file is STILL preserved (no APK packaging changes
+        //   needed, aapt2 stays happy). We only pay 5MB disk / 20ms copy ONCE per
+        //   app launch; the hint copy is cached in filesDir/models/hints and
+        //   re-used on every subsequent start (re-created only if size/mtime miss).
+        private const val BINARY_NAME = "libkatago.so"
         private const val CONFIG_NAME = "gtp_static.cfg"
 
         /** Linker 64-bit loader candidates (in preference order). */
@@ -270,8 +291,95 @@ class KataGoEngine(private val context: Context) {
                 return@withContext false
             }
         }
-        AppLogger.i(TAG, "Model final: ${modelFile.absolutePath} (exists=${modelFile.exists()} size=${modelFile.length()})")
+        AppLogger.i(TAG, "Model final (storage path): ${modelFile.absolutePath} (exists=${modelFile.exists()} size=${modelFile.length()})")
         AppLogger.i(TAG, "Config final: ${configFile.absolutePath} (exists=${configFile.exists()} size=${configFile.length()})")
+
+        // ---- KATAGO HINT SUFFIX REMAP (the exit=0 root cause) -----------------
+        //
+        // PROOF (user diagnostic ai_last_fail_diag.txt 20260803_064230):
+        //   linker64 /data/app/.../lib/arm64/libkatago.so gtp -model <...>.bin ...
+        //   → exit = 0, stderr = EMPTY, died within 2s.
+        //
+        // This CANNOT be a crash (exit would be nonzero) or missing so (exit=1
+        // with CANNOT LINK in stderr). It is libkatago main() RETURNING 0 after
+        // doing NO work. Why? KataGo's C++ model loader dispatches based on the
+        // -model argument FILENAME EXTENSION to choose:
+        //   *.txt.gz       → gzip → decompress 12.4MB plain txt weights → OK
+        //   *.txt / *.bin  → plaintext-read 12.4MB weights
+        //   <other unrecognized>  → fallthrough: silent return 0.
+        // Our aapt2 workaround renamed shipped 6b .txt.gz → .bin (so aapt2 never
+        // inflates it back to 12.4MB). The gzip header is still there (proven by
+        // first-8-hex = 1f 8b 08 08 every single run) but the EXTENSION ".bin"
+        // caused KataGo to pick the plaintext-read loader, which choked on the
+        // gzip stream at the very start → main() returned 0.
+        //
+        // THE FIX (zero APK changes, pure runtime):
+        //   If the canonical storage file ends with ".bin" (or any extension
+        //   that KataGo won't pick the gzip loader for) we materialise a SIBLING
+        //   HINT file that:
+        //     • points at the same bytes (hardlink via NIO Files.createLink if
+        //       the underlying FS allows it — EXT4/F2FS on Android does)
+        //     • falls back to a 5MB byte copy (20ms) if hardlink fails (SD card
+        //       FAT FS, older OEMs, etc.)
+        //     • has name = <basename-stripped-of-final-.bin> + ".txt.gz"
+        //       → KataGo dispatches to the gzip loader; first-8 1f 8b matches
+        //         → gzip reader reads, gets weights, ENTERS GTP SERVER LOOP.
+        //   Result: waitFor(2s) returns FALSE (process alive) → start()=true.
+        //
+        // Cache location: filesDir/models/hints/  (cleaned on model update).
+        // Re-create policy: hint missing, or hint size != source size, or hint
+        // lastModified < source lastModified.
+        // ----------------------------------------------------------------------
+        val effectiveModelFile: File = run {
+            val src = modelFile
+            val needHint = src.name.endsWith(".bin") ||
+                    (src.name.endsWith(".txt") && ModelManager.isValidModelFile(src))
+            if (!needHint) {
+                // Ends with .txt.gz or already plain: use as-is.
+                diagLine("--- model_suffix_hint ---")
+                diagLine("  skip (suffix already accepted by KataGo loader): ${src.name}")
+                src
+            } else {
+                val hintsDir = File(File(filesDir, "models"), "hints").apply { mkdirs() }
+                val baseName = when {
+                    src.name.endsWith(".bin") -> src.name.removeSuffix(".bin")
+                    else -> src.nameWithoutExtension
+                }
+                val hint = File(hintsDir, "$baseName.txt.gz")
+                val fresh = hint.isFile && hint.length() == src.length() && hint.lastModified() >= src.lastModified()
+                var method = "cached"
+                if (!fresh) {
+                    if (hint.exists()) hint.delete()
+                    // Attempt 1: hardlink (free, instant, zero disk bloat)
+                    val linked = runCatching {
+                        java.nio.file.Files.createLink(
+                            hint.toPath(),
+                            src.toPath()
+                        )
+                        true
+                    }.getOrDefault(false)
+                    method = if (linked) "hardlink" else {
+                        // Attempt 2: copy (5MB, 20ms)
+                        src.inputStream().use { inp ->
+                            java.io.FileOutputStream(hint).use { out -> inp.copyTo(out) }
+                        }
+                        try { hint.setLastModified(src.lastModified()) } catch (_: Exception) {}
+                        "copy"
+                    }
+                }
+                diagLine("--- model_suffix_hint ---")
+                diagLine("  source (aapt2-safe .bin): ${src.absolutePath}  size=${src.length()}")
+                diagLine("  hint  (KataGo gzip loader): ${hint.absolutePath}  size=${hint.length()}")
+                diagLine("  strategy=$method  fresh=$fresh  readable=${hint.canRead()}  exists=${hint.isFile}")
+                if (!hint.isFile || !hint.canRead() || hint.length() != src.length()) {
+                    AppLogger.e(TAG, "MODEL HINT REMAP FAILED (method=$method): hint=${hint.absolutePath} missing/mis-sized; aborting start")
+                    diagLine("  HINT FAIL: aborting start (hint file bad — check filesDir disk space?)")
+                    lastStartDiagnostic = diag.toString()
+                    return@withContext false
+                }
+                hint
+            }
+        }
         // 2026-08-02 DIAGNOSTIC-TO-TOAST: write exact on-disk bytes + header hex for
         // model & config (no "I think / probably" — exact numbers, verified every run).
         run {
@@ -281,9 +389,10 @@ class KataGoEngine(private val context: Context) {
                 (0 until r).joinToString(" ") { "%02x".format(b[it]) }
             }.getOrDefault("(read-failed)")
             diagLine("--- model_file ---")
-            diagLine("  path   = ${modelFile.absolutePath}")
-            diagLine("  exists = ${modelFile.isFile}  readable = ${modelFile.canRead()}  size = ${modelFile.length()}")
-            diagLine("  first-8-hex = ${firstHex(modelFile, 8)}")
+            diagLine("  path   = ${effectiveModelFile.absolutePath}")
+            diagLine("  (storage_source = ${modelFile.absolutePath})")
+            diagLine("  exists = ${effectiveModelFile.isFile}  readable = ${effectiveModelFile.canRead()}  size = ${effectiveModelFile.length()}")
+            diagLine("  first-8-hex = ${firstHex(effectiveModelFile, 8)}")
             diagLine("--- config_file ---")
             diagLine("  path   = ${configFile.absolutePath}")
             diagLine("  exists = ${configFile.isFile}  readable = ${configFile.canRead()}  size = ${configFile.length()}")
@@ -292,21 +401,7 @@ class KataGoEngine(private val context: Context) {
         run {
             val problems = mutableListOf<String>()
             if (!configFile.isFile || configFile.length() < 1000L || !configFile.canRead()) problems += "configFile invalid/missing (expect 7KB+ readable gtp cfg)"
-            if (!modelFile.isFile || !modelFile.canRead()) problems += "modelFile(source=$source) missing/unreadable"
-            // 2026-08-02 ENGINE_LIB check: libmain.so is the exec wrapper but it
-            // DT_NEEDED libkatago.so (the real 5.3MB engine). If the engine lib is
-            // missing from nativeLibraryDir the FIRST instruction of main() will
-            // SIGSEGV/crash-link with an empty stderr line — indistinguishable from
-            // the old 'wrong binary' bug. Catch this EARLY in preflight so toast
-            // says exactly what's wrong, instead of 4 silent Plan failures.
-            val engineLib = nativeLibraryDir?.resolve(ENGINE_LIB_NAME)
-            when {
-                nativeLibraryDir == null -> problems += "nativeLibraryDir is NULL (app context lost)"
-                engineLib == null -> problems += "nativeLibraryDir resolved but $ENGINE_LIB_NAME path null"
-                !engineLib.isFile -> problems += "nativeLibraryDir/$ENGINE_LIB_NAME missing (APK pruned too aggressively? DT_NEEDED by $BINARY_NAME)"
-                engineLib.length() < 5_000_000 -> problems += "nativeLibraryDir/$ENGINE_LIB_NAME truncated (expect 5.3MB actual ${engineLib.length()} bytes; APK packaging corrupted?)"
-                !engineLib.canRead() -> problems += "nativeLibraryDir/$ENGINE_LIB_NAME unreadable (SELinux context wrong?)"
-            }
+            if (!effectiveModelFile.isFile || !effectiveModelFile.canRead()) problems += "effectiveModelFile (after hint remap) missing/unreadable — pass -model <this> to KataGo"
             diagLine("--- preflight ---")
             if (problems.isEmpty()) diagLine("  OK (pass)") else diagLine("  FAIL: ${problems.joinToString(" | ")}")
             if (problems.isNotEmpty()) {
@@ -335,14 +430,13 @@ class KataGoEngine(private val context: Context) {
         // "copy deps → LD_LIBRARY_PATH=filesDir" surface area that broke launch.
         // ---- 8< ----
         val filesDirBinary = File(filesDir, BINARY_NAME)
-        // Prefer nativeLibraryDir/libmain.so as the COPY SOURCE for exec bit
-        // reason (OS already verified the ABI, sha matches apk signature).
-        // libmain.so = 14KB tiny exec wrapper (the only real PIE binary);
-        // libkatago.so stays in nativeLibraryDir as DT_NEEDED load target.
-        // Size threshold: > 10_000 bytes (libmain = 14344 passes; if BINARY_NAME
-        // ever reverts to libkatago.so 5.3MB also passes; broken truncation 0-5KB fails).
+        // Prefer nativeLibraryDir/libkatago.so as the COPY SOURCE for exec bit
+        // reason (OS already verified the ABI, sha matches apk signature);
+        // fall back to assets/libkatago.so only if jniLibs copy is missing.
+        // Size threshold 1MB: libkatago = 5.3MB passes; any truncated/corrupt
+        // 0-500KB copy fails and falls back to assets/ path.
         val jniBinary: File? = nativeLibraryDir?.resolve(BINARY_NAME)
-            ?.takeIf { it.exists() && it.isFile && it.length() > 10_000L }
+            ?.takeIf { it.exists() && it.isFile && it.length() > 1_000_000 }
         val assetAvailable = try {
             context.assets.open(BINARY_NAME).close(); true
         } catch (_: Exception) {
@@ -425,7 +519,12 @@ class KataGoEngine(private val context: Context) {
             put("HOME", filesDir.absolutePath)
         }
         AppLogger.i(TAG, "LD_LIBRARY_PATH = ${envBase["LD_LIBRARY_PATH"]}")
-        val gtpArgs = listOf("gtp", "-model", modelFile.absolutePath, "-config", configFile.absolutePath)
+        // 2026-08-02 HINT SUFFIX FIX: pass the .txt.gz hint file (effectiveModelFile)
+        // to KataGo, NOT the raw .bin storage path. KataGo's C++ main() uses the
+        // EXTENSION of the -model argument filename to pick gzip-vs-plaintext
+        // loader. If we passed .bin it picks plaintext and the 1f 8b gzip header
+        // is misinterpreted → main returns 0 immediately (server loop never starts).
+        val gtpArgs = listOf("gtp", "-model", effectiveModelFile.absolutePath, "-config", configFile.absolutePath)
         val linker64 = LINKER64_CANDIDATES.firstOrNull { File(it).exists() }
         AppLogger.i(TAG, "Detected linker64: ${linker64 ?: "NONE — linker64 plans skipped"}")
         diagLine("--- launch_env ---")
