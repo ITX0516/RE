@@ -48,22 +48,6 @@ jobs:
           echo "=== .so sizes ==="
           find app/src/main -name "*.so" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}' | sort -rh
 
-      - name: Strip .so debug symbols (safe, keeps functionality)
-        run: |
-          echo "Stripping tools: $(command -v llvm-strip || echo none) $(command -v aarch64-linux-gnu-strip || echo none) $(command -v strip || echo none)"
-          for f in $(find app/src/main -name "*.so"); do
-            before=$(stat -c %s "$f" 2>/dev/null || echo 0)
-            if command -v llvm-strip >/dev/null 2>&1; then
-              llvm-strip --strip-unneeded "$f" 2>/dev/null || true
-            elif command -v aarch64-linux-gnu-strip >/dev/null 2>&1; then
-              aarch64-linux-gnu-strip --strip-unneeded "$f" 2>/dev/null || true
-            else
-              strip --strip-unneeded "$f" 2>/dev/null || true
-            fi
-            after=$(stat -c %s "$f" 2>/dev/null || echo 0)
-            echo "$f: $before -> $after"
-          done
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
