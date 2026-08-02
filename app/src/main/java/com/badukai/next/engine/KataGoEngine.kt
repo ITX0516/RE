@@ -89,26 +89,36 @@ class KataGoEngine(private val context: Context) {
     @Volatile var lastAnalysisError: String = ""
 
     enum class Model(val displayName: String, val fileName: String, val description: String) {
-        SIX_B("6b", ModelManager.MODEL_FILENAME, "Efficient 6-block KataGo model")
+        SIX_B("6b", ModelManager.MODEL_FILENAME, "Efficient 6-block KataGo model (legacy selector enum; keep for existing callers)")
         ;
     }
 
-    suspend fun start(model: Model = Model.SIX_B): Boolean = withContext(Dispatchers.IO) {
+    /**
+     * Start KataGo. Multi-source weight selection (user request 2026-08-02):
+     *   BUNDLED_ASSET  — built-in 6b (4.97MB) shipped inside APK → copy to filesDir/models/asset_copy/
+     *   DOWNLOADED     — 6b fetched online (legacy path)
+     *   CUSTOM         — user-picked gzip mirrored into filesDir/models/custom/ by importCustomModel()
+     *
+     * Preflight contract for every source:
+     *   1) source-specific prepare (copy-from-APK / download / validate stored-import)
+     *   2) strict validateOrDelete: size >= 1MB & gzip magic 1f8b → if not: clean up + fail early
+     *   3) PREFLIGHT DOUBLE-CHECK: config >=1KB readable + model on disk readable
+     *      → never spawn a native process doomed to "could not parse model error"
+     */
+    suspend fun start(
+        source: ModelSource = ModelSource.BUNDLED_ASSET,
+        customStoredPath: String? = null,
+        @Suppress("UNUSED_PARAMETER") legacyModel: Model = Model.SIX_B
+    ): Boolean = withContext(Dispatchers.IO) {
         if (isRunning.get()) {
             AppLogger.w(TAG, "Engine already running")
             return@withContext true
         }
 
-        AppLogger.i(TAG, "=== KATAGO ENGINE START (reliability revert — jniLibs back, nativeLibraryDir primary) ===")
+        AppLogger.i(TAG, "=== KATAGO ENGINE START (source=$source customPathSet=${!customStoredPath.isNullOrBlank()}) ===")
 
         // ---- Directories + config ------------------------------------------------
         val filesDir = context.filesDir
-        // AI START RELIABILITY REVERT (2026-08-02): nativeLibraryDir is back as the
-        // PRIMARY dep-search source. With extractNativeLibs=true the OS guarantees
-        // 6 real on-disk files here:
-        //   libkatago.so libc++_shared.so libcalculator.so libffi.so libmain.so libcdsprpc.so
-        // filesDir is only used as a COPY-FROM-JNILIBS fallback (for exec bits, since
-        // app-lib mounts are sometimes noexec) and for the engine binary itself.
         val nativeLibraryDir: File? = try {
             context.applicationInfo.nativeLibraryDir?.let { File(it) }?.takeIf { it.exists() && it.isDirectory }
         } catch (_: Exception) { null }
@@ -126,47 +136,50 @@ class KataGoEngine(private val context: Context) {
             AppLogger.i(TAG, "Copied config file: ${configFile.absolutePath} size=${configFile.length()}")
         }
 
-        // ---- Model (strict validate + download if any doubt) --------------------
-        //
-        // AI-START-RELIABILITY FIX (2026-08-02): The old code only checked
-        // ModelManager.isModelAvailable() which was "File.exists()". It allowed a
-        // HALF-DOWNLOADED 1.2MB gz file (e.g. user lost network mid-download) to
-        // pass through, which KataGo then fails ungzip in < 1s with:
-        //   "Could neither parse .gz model as .txt.gz model nor as .bin.gz model"
-        // This is the MOST LIKELY "Failed to start AI" root cause when jniLibs
-        // are fully present (which they are after P1-a revert).
-        //
-        // New behavior:
-        //   1) Run strict validateOrDelete: size >= 90% of the known 6b model size
-        //      AND first 2 bytes == gzip magic (1f 8b). FAIL = delete file on disk.
-        //   2) If invalid/unavailable → force run downloadModel (full HTTP status +
-        //      size-match checks there, writes into .tmp then atomically renames).
-        //   3) Pass modelFile ABSOLUTE path via ModelManager.modelFile() instead of
-        //      constructing it manually — eliminates any future mismatch between
-        //      download destination vs -model CLI argument path.
-        run {
-            val valid = ModelManager.validateOrDelete(context)
-            if (!valid) {
-                AppLogger.w(TAG, "Model NOT usable on disk — forcing re-download.")
-                val res = ModelManager.downloadModel(context)
-                if (res.isFailure) {
-                    AppLogger.e(TAG, "Model re-download FAILED: ${res.exceptionOrNull()?.message} — cannot launch KataGo without a model.")
+        // ---- Model: source-specific prepare + strict validate -------------------
+        AppLogger.i(TAG, "Preparing model: source=$source customSet=${!customStoredPath.isNullOrBlank()}")
+        val modelFile: File = when (source) {
+            ModelSource.BUNDLED_ASSET -> {
+                val prepared = ModelManager.ensureBundledCopied(context)
+                if (prepared.isFailure) {
+                    AppLogger.e(TAG, "BUNDLED_ASSET ensureBundledCopied failed: ${prepared.exceptionOrNull()?.message}")
                     return@withContext false
                 }
-                AppLogger.i(TAG, "Model re-download OK.")
-            } else {
-                AppLogger.i(TAG, "Model passed strict validation (size + gzip magic).")
+                if (!ModelManager.validateOrDelete(context, ModelSource.BUNDLED_ASSET, null)) {
+                    AppLogger.e(TAG, "BUNDLED_ASSET validation FAILED even after copy — APK missing assets/models entry?")
+                    return@withContext false
+                }
+                ModelManager.bundledFile(context)
+            }
+            ModelSource.DOWNLOADED -> {
+                if (!ModelManager.validateOrDelete(context, ModelSource.DOWNLOADED, null)) {
+                    AppLogger.w(TAG, "DOWNLOADED not available → downloading from katagotraining.org now...")
+                    val d = ModelManager.downloadModel(context)
+                    if (d.isFailure) {
+                        AppLogger.e(TAG, "DOWNLOADED prepare failed: ${d.exceptionOrNull()?.message}")
+                        return@withContext false
+                    }
+                }
+                ModelManager.downloadedFile(context)
+            }
+            ModelSource.CUSTOM -> {
+                if (customStoredPath.isNullOrBlank()) {
+                    AppLogger.e(TAG, "CUSTOM source selected but SettingsStore.customModelPath is empty — user has never imported a file, start aborted")
+                    return@withContext false
+                }
+                if (!ModelManager.validateOrDelete(context, ModelSource.CUSTOM, customStoredPath)) {
+                    AppLogger.e(TAG, "CUSTOM model FAILED strict validation (corrupt/removed? storedPath=$customStoredPath) — please re-import via Settings → start aborted")
+                    return@withContext false
+                }
+                ModelManager.resolveModelFile(context, ModelSource.CUSTOM, customStoredPath)
             }
         }
-        val modelFile = ModelManager.modelFile(context)
-        AppLogger.i(TAG, "Model: ${modelFile.absolutePath} (exists=${modelFile.exists()}, size=${modelFile.length()})")
-        AppLogger.i(TAG, "Config: ${configFile.absolutePath} (exists=${configFile.exists()}, size=${configFile.length()})")
-        // Double-check both files are actually readable by the current UID before we
-        // even try to exec KataGo — catches "copyAssetToFile failed silently" bugs.
+        AppLogger.i(TAG, "Model final: ${modelFile.absolutePath} (exists=${modelFile.exists()} size=${modelFile.length()})")
+        AppLogger.i(TAG, "Config final: ${configFile.absolutePath} (exists=${configFile.exists()} size=${configFile.length()})")
         run {
             val problems = mutableListOf<String>()
             if (!configFile.isFile || configFile.length() < 1000L || !configFile.canRead()) problems += "configFile invalid/missing (expect 7KB+ readable gtp cfg)"
-            if (!modelFile.isFile || !modelFile.canRead()) problems += "modelFile not readable"
+            if (!modelFile.isFile || !modelFile.canRead()) problems += "modelFile(source=$source) missing/unreadable"
             if (problems.isNotEmpty()) {
                 AppLogger.e(TAG, "PREFLIGHT FAIL — refusing to launch: ${problems.joinToString()}")
                 return@withContext false
@@ -331,7 +344,7 @@ class KataGoEngine(private val context: Context) {
                 reader = result.reader
                 errorReader = result.errorReader
                 isRunning.set(true)
-                currentModel = model.fileName
+                currentModel = "$source:${modelFile.name}"
                 _isReady.value = true
                 startReaderJob()
                 startErrorReaderJob()

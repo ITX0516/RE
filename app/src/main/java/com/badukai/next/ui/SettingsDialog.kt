@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.badukai.next.engine.KataGoEngine
+import com.badukai.next.engine.ModelSource
 import com.badukai.next.game.PlacementMode
 import com.badukai.next.game.StoneAnimation
 
@@ -32,6 +33,8 @@ fun SettingsDialog(
     placeSoundIndex: Int,
     aiMoveTimeSeconds: Int,
     aiCanResign: Boolean,
+    aiModelSource: ModelSource,
+    customModelDisplayName: String,
     onDismiss: () -> Unit,
     onToggleCoordinates: () -> Unit,
     onToggleSound: () -> Unit,
@@ -40,7 +43,10 @@ fun SettingsDialog(
     onSetAnimation: (StoneAnimation) -> Unit,
     onSetPlaceSound: (Int) -> Unit,
     onSetAiMoveTime: (Int) -> Unit,
-    onSetAiCanResign: (Boolean) -> Unit
+    onSetAiCanResign: (Boolean) -> Unit,
+    onSetAiModelSource: (ModelSource) -> Unit,
+    onPickCustomModel: () -> Unit,
+    onResetAiModelToBundled: () -> Unit
 ) {
     val colors = BadukNextColors
     Dialog(onDismissRequest = onDismiss) {
@@ -89,7 +95,7 @@ fun SettingsDialog(
                 }
 
                 Spacer(Modifier.height(10.dp))
-                CollapsibleSection(title = "AI", defaultExpanded = false) {
+                CollapsibleSection(title = "AI", defaultExpanded = true) {
                     Text("Move time (seconds)", fontSize = 12.sp, color = colors.TextSecondary)
                     Spacer(Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
@@ -103,6 +109,72 @@ fun SettingsDialog(
                     }
                     Spacer(Modifier.height(10.dp))
                     ToggleRow("AI can resign", "Allow AI to resign when losing badly", aiCanResign, { onSetAiCanResign(!aiCanResign) })
+                    Spacer(Modifier.height(14.dp))
+                    Divider(color = colors.Divider)
+                    Spacer(Modifier.height(10.dp))
+                    Text("AI weights source", fontSize = 12.sp, color = colors.TextSecondary, fontWeight = FontWeight.SemiBold)
+                    Text("离线内置 6b 无需首次下载；可切换到在线下载或导入自定义 .txt.gz/.bin.gz", fontSize = 11.sp, color = colors.TextSecondary)
+                    Spacer(Modifier.height(6.dp))
+                    ModelSource.entries.forEach { src ->
+                        val selected = aiModelSource == src
+                        val enabled = src != ModelSource.CUSTOM || customModelDisplayName.isNotBlank()
+                        val subtitle = when (src) {
+                            ModelSource.BUNDLED_ASSET -> "APK 内置 4.97MB 6b，离线首启可用"
+                            ModelSource.DOWNLOADED -> "从 katagotraining.org 下载 6b（需要联网）"
+                            ModelSource.CUSTOM -> if (customModelDisplayName.isNotBlank()) "当前：$customModelDisplayName" else "未导入（请点击下方按钮选择文件）"
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selected) colors.AccentLight else colors.SurfaceVariant)
+                                    .border(1.dp, if (selected) colors.Accent else colors.Divider, RoundedCornerShape(8.dp))
+                                    .clickable(enabled = enabled) { onSetAiModelSource(src) }
+                                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .clip(CircleShape)
+                                            .border(
+                                                if (selected) 4.5.dp else 1.3.dp,
+                                                if (selected) colors.Accent else colors.TextSecondary,
+                                                CircleShape
+                                            )
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Column {
+                                        Text(src.displayName, color = if (enabled) colors.TextPrimary else colors.TextSecondary, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+                                        Text(subtitle, color = colors.TextSecondary, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(5.dp))
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = onPickCustomModel,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.Accent, contentColor = colors.TextOnAccent)
+                        ) {
+                            Text("选择自定义文件…", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        OutlinedButton(
+                            onClick = onResetAiModelToBundled,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, colors.Accent),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.Accent)
+                        ) {
+                            Text("恢复默认内置", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Text("支持 .bin.gz / .txt.gz (KataGo 原生)，必须 ≥ 1MB 且为 gzip 压缩（默认 KataGo 模型下载页直接可用）", fontSize = 10.5.sp, color = colors.TextSecondary)
                 }
 
                 Spacer(Modifier.height(10.dp))

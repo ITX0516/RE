@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.badukai.next.engine.ModelSource
 import com.badukai.next.game.GameMode
 import com.badukai.next.game.GameState
 import com.badukai.next.game.PlacementMode
@@ -25,9 +26,6 @@ import com.badukai.next.game.StoneAnimation
 import com.badukai.next.game.StoneColor
 import com.badukai.next.engine.KataGoEngine
 
-/**
- * Main game screen composable — AHQ Go inspired layout
- */
 @Composable
 fun GameScreen(
     state: GameState,
@@ -39,7 +37,6 @@ fun GameScreen(
     onUndo: () -> Unit,
     onNewGame: () -> Unit,
     onStartNewGame: (StoneColor, Int, Int, Float, Int, Boolean) -> Unit,
-    //                      color   size  handicap komi
     onDismissNewGame: () -> Unit,
     onShowModelSelector: () -> Unit,
     onSelectModel: (KataGoEngine.Model) -> Unit,
@@ -61,6 +58,9 @@ fun GameScreen(
     onToggleEye: () -> Unit,
     onSetAiMoveTime: (Int) -> Unit,
     onSetAiCanResign: (Boolean) -> Unit,
+    onSetAiModelSource: (ModelSource) -> Unit,
+    onPickCustomModel: () -> Unit,
+    onResetAiModelToBundled: () -> Unit,
     onSaveSgf: () -> Unit,
     onShowSavedGames: () -> Unit,
     onDismissSavedGames: () -> Unit,
@@ -279,8 +279,13 @@ fun GameScreen(
             onSetAnimation = onSetAnimation,
             aiMoveTimeSeconds = state.aiMoveTimeSeconds,
             aiCanResign = state.aiCanResign,
+            aiModelSource = state.aiModelSource,
+            customModelDisplayName = state.customModelDisplayName,
             onSetAiMoveTime = onSetAiMoveTime,
-            onSetAiCanResign = onSetAiCanResign
+            onSetAiCanResign = onSetAiCanResign,
+            onSetAiModelSource = onSetAiModelSource,
+            onPickCustomModel = onPickCustomModel,
+            onResetAiModelToBundled = onResetAiModelToBundled
         )
     }
     if (state.showSavedGamesDialog) {

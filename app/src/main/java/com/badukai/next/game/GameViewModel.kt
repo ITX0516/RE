@@ -7,6 +7,8 @@ import com.badukai.next.analysis.RecordedMove
 import com.badukai.next.audio.StoneSoundPlayer
 import com.badukai.next.game.SettingsStore
 import com.badukai.next.engine.KataGoEngine
+import com.badukai.next.engine.ModelSource
+import com.badukai.next.engine.ModelManager
 import com.badukai.next.logging.AppLogger
 import com.badukai.next.ui.BadukNextColors
 import com.badukai.next.ui.GameTheme
@@ -43,6 +45,8 @@ data class GameState(
     val isEngineReady: Boolean = false,
     val isEngineStarting: Boolean = false,
     val selectedModel: KataGoEngine.Model = KataGoEngine.Model.SIX_B,
+    val aiModelSource: ModelSource = ModelSource.BUNDLED_ASSET,
+    val customModelDisplayName: String = "",
     val gameMessage: String = "",
     val lastMovePoint: Point? = null,
     val capturedByBlack: Int = 0,
@@ -127,7 +131,9 @@ class GameViewModel : ViewModel() {
                 placeSoundIndex = s.placeSoundIndex,
                 stoneAnimation = s.stoneAnimation,
                 aiMoveTimeSeconds = s.aiMoveTimeSeconds,
-                aiCanResign = s.aiCanResign
+                aiCanResign = s.aiCanResign,
+                aiModelSource = s.aiModelSource,
+                customModelDisplayName = s.customModelDisplayName
             )
             soundPlayer?.setPlaceSound(s.placeSoundIndex)
             BadukNextColors.setTheme(s.currentTheme)
@@ -139,26 +145,31 @@ class GameViewModel : ViewModel() {
     fun startEngine(model: KataGoEngine.Model = _state.value.selectedModel) {
         val engine = this.engine ?: return
         if (_state.value.isEngineStarting) return
-
-        _state.value = _state.value.copy(
+        val s = _state.value
+        _state.value = s.copy(
             isEngineStarting = true,
             gameMessage = "Starting AI..."
         )
 
         viewModelScope.launch {
             try {
-                val success = engine.start(model)
+                val source = settingsStore.aiModelSource
+                val customPath = settingsStore.customModelPath.takeIf { it.isNotBlank() }
+                val success = engine.start(source = source, customStoredPath = customPath, legacyModel = model)
                 if (success) {
                     engine.setBoardSize(_state.value.boardSize)
                     engine.clearBoard()
                     engine.setKomi(GameConstants.DEFAULT_KOMI)
-                    // Apply AI speed + resign settings
                     engine.sendCommand("time_settings 0 ${_state.value.aiMoveTimeSeconds} 1")
                     _state.value = _state.value.copy(
                         isEngineReady = true,
                         isEngineStarting = false,
                         selectedModel = model,
-                        gameMessage = "Ready to play"
+                        gameMessage = when (source) {
+                            ModelSource.BUNDLED_ASSET -> "Ready (内置 6b，离线可用)"
+                            ModelSource.DOWNLOADED -> "Ready (在线下载 6b)"
+                            ModelSource.CUSTOM -> "Ready (自定义权重)"
+                        }
                     )
                     if (_state.value.playerColor == StoneColor.WHITE) {
                         requestAiMove()
@@ -167,7 +178,7 @@ class GameViewModel : ViewModel() {
                     _state.value = _state.value.copy(
                         isEngineReady = false,
                         isEngineStarting = false,
-                        gameMessage = "Failed to start AI"
+                        gameMessage = "Failed to start AI (source=$source). Check logcat ModelManager/KataGoEngine for details."
                     )
                 }
             } catch (e: Exception) {
@@ -562,6 +573,75 @@ class GameViewModel : ViewModel() {
     fun hideModelSelector() { _state.value = _state.value.copy(showModelSelector = false) }
     fun showSettingsDialog() { _state.value = _state.value.copy(showSettings = true) }
     fun hideSettingsDialog() { _state.value = _state.value.copy(showSettings = false) }
+
+    // --- AI Weight source (2026-08-02) -------------------------------------
+    fun setAiModelSource(source: ModelSource) {
+        if (!::settingsStore.isInitialized) return
+        // Safety: user switched to CUSTOM but hasn't imported a file → auto-switch back if custom path is empty
+        val src = if (source == ModelSource.CUSTOM && settingsStore.customModelPath.isBlank()) {
+            AppLogger.w(TAG, "Tried to select CUSTOM source without imported model — fallback to BUNDLED_ASSET. Ask user to tap \"选择自定义文件\" first.")
+            ModelSource.BUNDLED_ASSET
+        } else source
+        settingsStore.aiModelSource = src
+        _state.value = _state.value.copy(
+            aiModelSource = src,
+            customModelDisplayName = settingsStore.customModelDisplayName
+        )
+        // Restart engine if it was running under a different weight source.
+        if (_state.value.isEngineReady || _state.value.isEngineStarting) {
+            AppLogger.i(TAG, "Weight source changed → restart engine.")
+            stopEngine()
+            startEngine()
+        }
+    }
+
+    /** Called after SAF ACTION_OPEN_DOCUMENT succeeds with a content:// Uri + display name. */
+    fun onCustomModelPicked(uri: android.net.Uri, displayNameHint: String?) {
+        val ctx = appContext ?: return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(gameMessage = "正在导入自定义权重…")
+            val res = ModelManager.importCustomModel(ctx, uri, displayNameHint)
+            if (res.isSuccess) {
+                val storedPath = res.getOrNull() ?: ""
+                settingsStore.customModelPath = storedPath
+                settingsStore.customModelDisplayName = (displayNameHint ?: storedPath.substringAfterLast('/')).take(64)
+                settingsStore.aiModelSource = ModelSource.CUSTOM
+                _state.value = _state.value.copy(
+                    aiModelSource = ModelSource.CUSTOM,
+                    customModelDisplayName = settingsStore.customModelDisplayName,
+                    gameMessage = "自定义权重导入成功"
+                )
+                if (_state.value.isEngineReady || _state.value.isEngineStarting) {
+                    stopEngine(); startEngine()
+                }
+            } else {
+                val msg = res.exceptionOrNull()?.message ?: "unknown"
+                _state.value = _state.value.copy(gameMessage = "导入失败：$msg")
+                AppLogger.e(TAG, "Custom model import failed: $msg")
+            }
+        }
+    }
+
+    /** "恢复默认内置" → SettingsStore 清空 metadata + 可选清 custom 与 asset_copy 缓存。 */
+    fun resetAiModelToBundled(clearCustomCacheToo: Boolean = true) {
+        if (!::settingsStore.isInitialized) return
+        settingsStore.resetModelSourceToBundled()
+        val ctx = appContext
+        if (clearCustomCacheToo && ctx != null) {
+            ModelManager.clearCustomAndCache(ctx)
+        }
+        _state.value = _state.value.copy(
+            aiModelSource = ModelSource.BUNDLED_ASSET,
+            customModelDisplayName = "",
+            gameMessage = "已恢复默认内置权重（6b）"
+        )
+        if (_state.value.isEngineReady || _state.value.isEngineStarting) {
+            stopEngine(); startEngine()
+        }
+    }
+
+    fun currentCustomDisplayName(): String =
+        if (::settingsStore.isInitialized) settingsStore.customModelDisplayName else ""
 
     fun toggleTerritoryOverlay() {
         val s = _state.value

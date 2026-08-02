@@ -39,13 +39,21 @@ jobs:
           chmod +x ./setup-from-badukai.sh
           ./setup-from-badukai.sh
 
-          echo "=== Pre-cleanup assets ==="
+          echo "=== Pre-packaging assets ==="
           du -sh app/src/main/assets/*/ 2>/dev/null || echo "no subdirs"
           du -sh app/src/main/jniLibs/ 2>/dev/null || echo "no jniLibs"
 
-          # Remove bundled models — we download 6b at runtime
-          rm -rvf app/src/main/assets/models
-          echo "=== Post-cleanup assets ==="
+          # KEEP bundled 6b model (4.97MB .txt.gz) — user wants it shipped inside
+          # the APK so first launch works offline; only delete the directory
+          # IF setup-from-badukai.sh ever accidentally copies >1 file that we
+          # didn't plan on shipping (i.e. anything other than the 6b 4.97MB
+          # weight).
+          DST_MODELS="app/src/main/assets/models"
+          if [ -d "$DST_MODELS" ]; then
+              echo "assets/models kept for offline 1st-run; bundled files:"
+              ( find "$DST_MODELS" -maxdepth 1 -type f -printf '  %12s %f\n' 2>/dev/null || true ) | sort
+          fi
+          echo "=== asset sizes confirmed ==="
 
           # ====================================================================
           # APK SHRINK v2 (belt & suspenders) — CI re-prunes all groups EVEN IF
