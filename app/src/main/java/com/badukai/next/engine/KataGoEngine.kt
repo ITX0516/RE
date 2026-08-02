@@ -121,23 +121,57 @@ class KataGoEngine(private val context: Context) {
         }
 
         val configFile = File(filesDir, CONFIG_NAME)
-        if (!configFile.exists()) {
+        if (!configFile.exists() || configFile.length() == 0L) {
             copyAssetToFile(CONFIG_NAME, configFile)
-            AppLogger.i(TAG, "Copied config file: ${configFile.absolutePath}")
+            AppLogger.i(TAG, "Copied config file: ${configFile.absolutePath} size=${configFile.length()}")
         }
 
-        // ---- Model (download-once at runtime) ------------------------------------
-        if (!ModelManager.isModelAvailable(context)) {
-            AppLogger.i(TAG, "Downloading model (6b)...")
-            val result = ModelManager.downloadModel(context)
-            if (result.isFailure) {
-                AppLogger.e(TAG, "Model download failed: ${result.exceptionOrNull()?.message}")
+        // ---- Model (strict validate + download if any doubt) --------------------
+        //
+        // AI-START-RELIABILITY FIX (2026-08-02): The old code only checked
+        // ModelManager.isModelAvailable() which was "File.exists()". It allowed a
+        // HALF-DOWNLOADED 1.2MB gz file (e.g. user lost network mid-download) to
+        // pass through, which KataGo then fails ungzip in < 1s with:
+        //   "Could neither parse .gz model as .txt.gz model nor as .bin.gz model"
+        // This is the MOST LIKELY "Failed to start AI" root cause when jniLibs
+        // are fully present (which they are after P1-a revert).
+        //
+        // New behavior:
+        //   1) Run strict validateOrDelete: size >= 90% of the known 6b model size
+        //      AND first 2 bytes == gzip magic (1f 8b). FAIL = delete file on disk.
+        //   2) If invalid/unavailable → force run downloadModel (full HTTP status +
+        //      size-match checks there, writes into .tmp then atomically renames).
+        //   3) Pass modelFile ABSOLUTE path via ModelManager.modelFile() instead of
+        //      constructing it manually — eliminates any future mismatch between
+        //      download destination vs -model CLI argument path.
+        run {
+            val valid = ModelManager.validateOrDelete(context)
+            if (!valid) {
+                AppLogger.w(TAG, "Model NOT usable on disk — forcing re-download.")
+                val res = ModelManager.downloadModel(context)
+                if (res.isFailure) {
+                    AppLogger.e(TAG, "Model re-download FAILED: ${res.exceptionOrNull()?.message} — cannot launch KataGo without a model.")
+                    return@withContext false
+                }
+                AppLogger.i(TAG, "Model re-download OK.")
+            } else {
+                AppLogger.i(TAG, "Model passed strict validation (size + gzip magic).")
+            }
+        }
+        val modelFile = ModelManager.modelFile(context)
+        AppLogger.i(TAG, "Model: ${modelFile.absolutePath} (exists=${modelFile.exists()}, size=${modelFile.length()})")
+        AppLogger.i(TAG, "Config: ${configFile.absolutePath} (exists=${configFile.exists()}, size=${configFile.length()})")
+        // Double-check both files are actually readable by the current UID before we
+        // even try to exec KataGo — catches "copyAssetToFile failed silently" bugs.
+        run {
+            val problems = mutableListOf<String>()
+            if (!configFile.isFile || configFile.length() < 1000L || !configFile.canRead()) problems += "configFile invalid/missing (expect 7KB+ readable gtp cfg)"
+            if (!modelFile.isFile || !modelFile.canRead()) problems += "modelFile not readable"
+            if (problems.isNotEmpty()) {
+                AppLogger.e(TAG, "PREFLIGHT FAIL — refusing to launch: ${problems.joinToString()}")
                 return@withContext false
             }
         }
-        val modelFile = File(context.filesDir, "models").resolve(model.fileName)
-        AppLogger.i(TAG, "Model: ${modelFile.absolutePath} (exists=${modelFile.exists()}, size=${modelFile.length()})")
-        AppLogger.i(TAG, "Config: ${configFile.absolutePath} (exists=${configFile.exists()})")
 
         // ---- Install engine binary into filesDir (exec source) ------------------
         //
