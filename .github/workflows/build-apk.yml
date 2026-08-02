@@ -38,30 +38,28 @@ jobs:
         run: |
           chmod +x ./setup-from-badukai.sh
           ./setup-from-badukai.sh
-          echo "=== Assets before cleanup ==="
+
+          echo "=== Pre-cleanup assets ==="
           du -sh app/src/main/assets/*/ 2>/dev/null || echo "no subdirs"
           du -sh app/src/main/jniLibs/ 2>/dev/null || echo "no jniLibs"
-          # Remove old model files — we download 6b at runtime
-          rm -rvf app/src/main/assets/models
-          echo "=== Assets after cleanup ==="
-          du -sh app/src/main/assets/*/ 2>/dev/null || echo "no subdirs"
 
-          # =========================================================
-          # APK SHRINK P0 + HOTFIX SAFE (belt & suspenders) — CI re-runs
-          # the same pruning as setup-from-badukai.sh so any future
-          # accidental revert of the shell script cannot re-inflate.
-          # IMPORTANT: assets/libkatago.so is NOW PRESERVED (we need it
-          # for fall-back engine start path if direct exec of jniLibs
-          # is blocked by SELinux / noexec mount on user devices).
-          # =========================================================
+          # Remove bundled models — we download 6b at runtime
+          rm -rvf app/src/main/assets/models
+          echo "=== Post-cleanup assets ==="
+
+          # ====================================================================
+          # APK SHRINK v2 (belt & suspenders) — CI re-prunes all groups EVEN IF
+          # setup-from-badukai.sh is ever accidentally reverted upstream.
+          # Pruning order matches setup-from-badukai.sh (P0, P1, P2).
+          # ====================================================================
           DST=app/src/main
           prune() { rm -fv "$@" || true; }
 
-          # 1) KataGo exclusive variants (KataGoEngine hardcodes libkatago.so only)
+          # -------- P0-a: KataGo mutually exclusive variants --------------------
           prune $DST/jniLibs/arm64-v8a/libkatago_without_snpe.so
           prune $DST/jniLibs/arm64-v8a/libkatago_large_boards_without_snpe.so
 
-          # 2) OpenCV + photo board-recognition (no CAMERA permission → impossible to use)
+          # -------- P0-b: Photo board-recognition (no CAMERA permission) -------
           prune $DST/jniLibs/arm64-v8a/libopencv_core.so
           prune $DST/jniLibs/arm64-v8a/libopencv_imgproc.so
           prune $DST/jniLibs/arm64-v8a/libopencv_imgcodecs.so
@@ -70,21 +68,83 @@ jobs:
           prune $DST/jniLibs/arm64-v8a/libimgToSgf.so
           prune $DST/jniLibs/arm64-v8a/libhidapi.so
 
-          # 3) SDL (UI = Compose Canvas ; audio = SoundPool)
+          # -------- P0-c: SDL family (Compose Canvas + SoundPool used instead)
           prune $DST/jniLibs/arm64-v8a/libSDL2.so
           prune $DST/jniLibs/arm64-v8a/libSDL2_image.so
           prune $DST/jniLibs/arm64-v8a/libSDL2_mixer.so
           prune $DST/jniLibs/arm64-v8a/libSDL2_ttf.so
 
-          # 4) Python runtime (upstream already removed .py scripts)
+          # -------- P0-d: Python 3.7 runtime (scripts removed upstream) --------
           prune $DST/jniLibs/arm64-v8a/libpython3.7m.so
 
-          # DO NOT prune assets/libkatago.so any more — kept as engine start fallback
+          # -------- P1-a: SNPE family (12 so / ~93MB) --------------------------
+          # Evidence: 0 com.qualcomm.qti.snpe.* in Kotlin; gtp_static.cfg only
+          # declares openclDeviceToUseThread0=0 (pure OpenCL backend, NO SNPE).
+          prune $DST/jniLibs/arm64-v8a/libSnpeHtpPrepare.so
+          prune $DST/jniLibs/arm64-v8a/libSNPE.so
+          prune $DST/jniLibs/arm64-v8a/libSnpeDspV66Stub.so
+          prune $DST/jniLibs/arm64-v8a/libSnpeHta.so
+          prune $DST/jniLibs/arm64-v8a/libSnpeHtpV81Stub.so
+          prune $DST/jniLibs/arm64-v8a/libSnpeHtpV79Stub.so
+          prune $DST/jniLibs/arm64-v8a/libSnpeHtpV75Stub.so
+          prune $DST/jniLibs/arm64-v8a/libSnpeHtpV73Stub.so
+          prune $DST/jniLibs/arm64-v8a/libSnpeHtpV69Stub.so
+          prune $DST/jniLibs/arm64-v8a/libSnpeHtpV68Stub.so
+          prune $DST/jniLibs/arm64-v8a/libhta_hexagon_runtime_snpe.so
+          prune $DST/jniLibs/arm64-v8a/libtensorflowlite.so  # 0 tflite Java refs either
 
-          echo "=== Post-prune .so TOP 20 by size ==="
+          # -------- P1-b: QNN family (17 so / ~86MB) ---------------------------
+          # Evidence: cfg only OpenCL backend, 0 com.qualcomm.qti.qnn.* in Kotlin
+          prune $DST/jniLibs/arm64-v8a/libQnnHtpPrepare.so
+          prune $DST/jniLibs/arm64-v8a/libQnnCpu.so
+          prune $DST/jniLibs/arm64-v8a/libQnnSystem.so
+          prune $DST/jniLibs/arm64-v8a/libQnnHtp.so
+          prune $DST/jniLibs/arm64-v8a/libQnnDsp.so
+          prune $DST/jniLibs/arm64-v8a/libQnnTFLiteDelegate.so
+          prune $DST/jniLibs/arm64-v8a/libQnnHta.so
+          prune $DST/jniLibs/arm64-v8a/libQnnSaver.so
+          prune $DST/jniLibs/arm64-v8a/libQnnHtpV81Stub.so
+          prune $DST/jniLibs/arm64-v8a/libQnnHtpV79Stub.so
+          prune $DST/jniLibs/arm64-v8a/libQnnHtpV75Stub.so
+          prune $DST/jniLibs/arm64-v8a/libQnnHtpV73Stub.so
+          prune $DST/jniLibs/arm64-v8a/libQnnHtpV69Stub.so
+          prune $DST/jniLibs/arm64-v8a/libQnnHtpV68Stub.so
+          prune $DST/jniLibs/arm64-v8a/libQnnDspV66Stub.so
+          prune $DST/jniLibs/arm64-v8a/libQnnIr.so
+          prune $DST/jniLibs/arm64-v8a/libQnnGpu.so
+
+          # -------- P2: Drop jniLibs/libkatago.so (engine start is assets→filesDir only)
+          prune $DST/jniLibs/arm64-v8a/libkatago.so
+
+          # -------- P3: MOVE remaining 5 jniLibs .so → assets/deps/, then rm jniLibs
+          #   Evidence: 0 `System.loadLibrary` / `loadLibrary` calls in Kotlin/Java
+          #   (grep -rE "System\.loadLibrary|Runtime.*loadLibrary" returned 0 hits).
+          #   Only KataGo child-process dlopen() touches these libs. Moving them out
+          #   of jniLibs means Gradle will NOT auto-extract them to /data/app-lib,
+          #   and extractNativeLibs=false becomes meaningful (0 extract).
+          mkdir -p $DST/assets/deps
+          for so in $DST/jniLibs/arm64-v8a/*.so; do
+            [ -f "$so" ] || continue
+            base=$(basename "$so")
+            mv -fv "$so" "$DST/assets/deps/$base" || { cp -fv "$so" "$DST/assets/deps/$base" && rm -fv "$so"; }
+          done
+          # Belt & suspenders: if any so somehow survived, delete them forcibly
+          prune $DST/jniLibs/arm64-v8a/*.so
+          rmdir -v $DST/jniLibs/arm64-v8a 2>/dev/null || true
+          rmdir -v $DST/jniLibs           2>/dev/null || true
+
+          echo ""
+          echo "=== CI Post-prune .so TOP 20 by size ==="
           find app/src/main -name "*.so" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}' | sort -rh | head -20
-          echo "=== assets/libkatago.so present? ==="
-          ls -la app/src/main/assets/libkatago.so 2>/dev/null || echo "MISSING (engine fallback copy not available!)"
+          DEPS_COUNT=$(find app/src/main/assets/deps -maxdepth 1 -name "*.so" -type f 2>/dev/null | wc -l | tr -d ' ')
+          DEPS_BYTES=$(du -cb app/src/main/assets/deps/*.so 2>/dev/null | tail -1 | awk '{print $1}')
+          DEPS_MB=$(( DEPS_BYTES / 1048576 ))
+          JNI_COUNT=$(find app/src/main/jniLibs -name "*.so" -type f 2>/dev/null | wc -l | tr -d ' ')
+          echo "assets/deps KataGo ld.so deps: $DEPS_COUNT .so = ${DEPS_MB}MB"
+          echo "jniLibs .so remaining (should be 0): $JNI_COUNT (vs ~180MB before P1/P2/P3)"
+          echo ""
+          echo "=== assets/libkatago.so present? (required for Path B engine start) ==="
+          ls -la app/src/main/assets/libkatago.so 2>/dev/null || echo "FATAL: assets/libkatago.so MISSING — engine will have no binary!"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -96,7 +156,7 @@ jobs:
 
       - name: Build Debug APK
         run: |
-          echo "=== APK content estimate ==="
+          echo "=== APK content estimate before build ==="
           find app/src/main -name "*.so" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}' | sort -rh | head -20
           find app/src/main -name "*.bin*" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}'
           echo "=== Building ==="

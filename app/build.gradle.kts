@@ -46,15 +46,17 @@ android {
 
     packaging {
         jniLibs {
-            // HOTFIX 2026-08-02: Keep legacy packaging. Combined with
-            // extractNativeLibs=true in AndroidManifest this is the most
-            // compatible combo (system fully extracts .so and they can be
-            // exec'd or loaded directly). We'll migrate to non-legacy once
-            // engine start is proven on all devices.
-            useLegacyPackaging = true
-            pickFirsts += listOf(
-                "lib/arm64-v8a/libc++_shared.so"
-            )
+            // APK SHRINK v2 (2026-08-02):
+            //   0 Java System.loadLibrary calls in the codebase → no JNI loading.
+            //   All native libs (KataGo engine + its ld.so deps) live in assets/:
+            //     assets/libkatago.so     (PIE binary — exec'd via assets→filesDir)
+            //     assets/deps/*.so        (libc++_shared, libcalculator, libffi,
+            //                               libmain, libcdsprpc — copied to filesDir
+            //                               and resolved via LD_LIBRARY_PATH=filesDir)
+            //   jniLibs/ is therefore EMPTY. Gradle has nothing to package, extract,
+            //   or compress here. useLegacyPackaging=false is still the sensible
+            //   default so any *future* jni addition is compressed in the APK.
+            useLegacyPackaging = false
         }
     }
 

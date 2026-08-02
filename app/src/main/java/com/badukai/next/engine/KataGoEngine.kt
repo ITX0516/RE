@@ -10,9 +10,6 @@ import kotlinx.coroutines.sync.withLock
 import com.badukai.next.analysis.AnalyzeResult
 import com.badukai.next.analysis.CandidateMove
 import com.badukai.next.game.GameConstants
-import com.badukai.next.game.Point
-import org.json.JSONObject
-import org.json.JSONArray
 import java.io.*
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
@@ -20,23 +17,47 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * KataGo engine wrapper that handles communication with the native KataGo process
- * via GTP (Go Text Protocol)
+ * via GTP (Go Text Protocol).
  *
- * ENGINE START LIFECYCLE (3-path fallback, hotfix 2026-08-02):
+ * ENGINE START STRATEGY (2026-08-02 — shrink v2 + P3):
  *
- *   Path A — Direct exec of jniLibs copy via /system/bin/linker64 loader
- *     + Best: no extra copy, minimal installed size
- *     - Sometimes blocked by SELinux/noexec mount on data/app-lib
+ *   ZERO native libraries live in jniLibs/ (jniLibs is fully removed,
+ *   android:extractNativeLibs="false" is now free because there is nothing to
+ *   extract). Every native binary in the APK is under assets/:
  *
- *   Path B — Copy assets/libkatago.so → filesDir + exec via linker64
- *     + Uses app-private files/ dir (exec is almost always permitted there)
- *     - Costs one extra copy on disk (size trade-off for stability)
+ *   APK  assets/libkatago.so    (5.1MB, PIE executable)
+ *        assets/deps/*.so       (1.2MB, 5 ld.so deps: libc++_shared,
+ *                                 libcalculator, libffi, libmain, libcdsprpc)
+ *                 │  first-launch copy (size-based update check)
+ *                 ▼
+ *   filesDir/libkatago.so    (app-private, exec always allowed)
+ *   filesDir/libc++_shared.so
+ *   filesDir/libcalculator.so
+ *   filesDir/libffi.so
+ *   filesDir/libmain.so
+ *   filesDir/libcdsprpc.so
+ *                 │  exec via one of two plans:
+ *                 ├─ Plan 1 : /system/bin/linker64 filesDir/libkatago.so gtp ...
+ *                 └─ Plan 2 : filesDir/libkatago.so gtp ...  (PIE binary direct)
+ *                 ▲
+ *   LD_LIBRARY_PATH = filesDir:filesDir/hexagon
+ *        (ALL runtime deps resolved from filesDir — no /data/app-lib reference)
  *
- *   Path C — Direct exec of filesDir copy WITHOUT linker64 (PIE binary case)
- *     + Some devices don't expose linker64 at /system/bin/linker64
+ *   Why this removes the LAST 1.2MB mattered:
+ *     • Before P3, those 5 .so lived in jniLibs/ → system extracted copies to
+ *       /data/app-lib ON INSTALL, costing 1.2MB. After P3, they sit compressed
+ *       in assets/ (APK) and only get a single copy inside filesDir at runtime,
+ *       at the same time as the engine binary.
+ *     • More importantly: by EMPTYING jniLibs/ we can flip
+ *       android:extractNativeLibs="false" WITHOUT any SELinux/noexec risk,
+ *       because there's literally nothing the system could try to exec-in-place
+ *       from the APK. All exec happens 100% inside filesDir/.
+ *     • This also cuts the ~3-way "APK jniLibs store + /data/app-lib extract +
+ *       filesDir copy" duplication down to exactly ONE filesDir copy for the
+ *       entire native footprint.
  *
- *   Each path probes: if process dies within 2s or throws IOException, we
- *   record the failure in AppLogger and proceed to the next path.
+ *   Failure diagnostics: both engine stderr + linker64 logs are printed into logcat
+ *   (dlopen / permission denied / missing .so / linker errors).
  */
 class KataGoEngine(private val context: Context) {
 
@@ -44,13 +65,15 @@ class KataGoEngine(private val context: Context) {
         private const val TAG = "KataGoEngine"
         private const val BINARY_NAME = "libkatago.so"
         private const val CONFIG_NAME = "gtp_static.cfg"
+
+        /** Linker 64-bit loader candidates (in preference order). */
         private val LINKER64_CANDIDATES = listOf(
             "/system/bin/linker64",
             "/apex/com.android.runtime/bin/linker64",
             "/system/bin/linker_android64"
         )
 
-        /** One candidate start plan for the 4-path engine start fallback. */
+        /** A single engine-launch plan: Path-B1 (linker64) or Path-B2 (PIE direct). */
         private data class StartPlan(
             val label: String,
             val binary: File,
@@ -81,9 +104,6 @@ class KataGoEngine(private val context: Context) {
 
     enum class Model(val displayName: String, val fileName: String, val description: String) {
         SIX_B("6b", ModelManager.MODEL_FILENAME, "Efficient 6-block KataGo model")
-
-        // Single model only — downloaded on first launch.
-        // Remove these when other models are no longer supported.
         ;
     }
 
@@ -93,11 +113,14 @@ class KataGoEngine(private val context: Context) {
             return@withContext true
         }
 
-        AppLogger.i(TAG, "=== PATCHED KATAGO ENGINE (4-path start hotfix) ===")
+        AppLogger.i(TAG, "=== KATAGO ENGINE START (shrink v2+P3 — assets→filesDir, 0 jniLibs extract) ===")
 
-        // ---- Preconditions: directories + model ----------------------------------
+        // ---- Directories + config ------------------------------------------------
         val filesDir = context.filesDir
-        val nativeLibDir = File(context.applicationInfo.nativeLibraryDir)
+        // NOTE: context.applicationInfo.nativeLibraryDir is NO LONGER referenced.
+        // P3 moved every runtime .so out of jniLibs/ into assets/deps/ → copies
+        // live inside filesDir/ exclusively. android:extractNativeLibs=false means
+        // the system doesn't even create /data/app-lib for us.
 
         val hexagonDir = File(filesDir, "hexagon")
         if (!hexagonDir.exists()) {
@@ -111,6 +134,7 @@ class KataGoEngine(private val context: Context) {
             AppLogger.i(TAG, "Copied config file: ${configFile.absolutePath}")
         }
 
+        // ---- Model (download-once at runtime) ------------------------------------
         if (!ModelManager.isModelAvailable(context)) {
             AppLogger.i(TAG, "Downloading model (6b)...")
             val result = ModelManager.downloadModel(context)
@@ -119,85 +143,124 @@ class KataGoEngine(private val context: Context) {
                 return@withContext false
             }
         }
-
-        val modelDir = File(context.filesDir, "models")
-        val modelFile = File(modelDir, model.fileName)
+        val modelFile = File(context.filesDir, "models").resolve(model.fileName)
         AppLogger.i(TAG, "Model: ${modelFile.absolutePath} (exists=${modelFile.exists()}, size=${modelFile.length()})")
         AppLogger.i(TAG, "Config: ${configFile.absolutePath} (exists=${configFile.exists()})")
 
-        // ---- Build shared environment (same for all 4 paths) -------------------
-        val envBase = LinkedHashMap<String, String>().apply {
-            put("LD_LIBRARY_PATH", "$nativeLibDir:${hexagonDir.absolutePath}:/vendor/lib64:/system/vendor/lib64")
-            put("ADSP_LIBRARY_PATH", "$nativeLibDir;${hexagonDir.absolutePath};/system/lib/rfsa/adsp;/system/vendor/lib/rfsa/adsp;/dsp")
-            put("HOME", filesDir.absolutePath)
-        }
-        val gtpArgs = listOf("gtp", "-model", modelFile.absolutePath, "-config", configFile.absolutePath)
-        val linker64 = LINKER64_CANDIDATES.firstOrNull { File(it).exists() }
-        AppLogger.i(TAG, "Detected linker64: ${linker64 ?: "NONE — will also try direct PIE exec"}")
-
-        // ---- Resolve 2 binary locations (jniLibs copy, filesDir copy) ----------
-        val jniLibsBinary = File(nativeLibDir, BINARY_NAME).takeIf { it.exists() }
-        if (jniLibsBinary != null) {
-            AppLogger.i(TAG, "jniLibs binary available: ${jniLibsBinary.absolutePath} size=${jniLibsBinary.length()}")
-        } else {
-            AppLogger.w(TAG, "jniLibs binary MISSING from $nativeLibDir — is extractNativeLibs=true?")
-            AppLogger.w(TAG, "nativeLibraryDir list: ${nativeLibDir.listFiles()?.map { it.name }?.take(20)}")
-        }
-
-        // Always ensure filesDir has an up-to-date copy (Path B/C fallback source).
+        // ---- Install engine binary + all ld.so deps into filesDir ----------------
+        //
+        // P3 layout (total runtime copy ~6.3MB inside filesDir, 0 anywhere else):
+        //   filesDir/libkatago.so     ← assets/libkatago.so
+        //   filesDir/libc++_shared.so  ← assets/deps/libc++_shared.so
+        //   filesDir/libcalculator.so  ← assets/deps/libcalculator.so
+        //   filesDir/libffi.so         ← assets/deps/libffi.so
+        //   filesDir/libmain.so        ← assets/deps/libmain.so
+        //   filesDir/libcdsprpc.so     ← assets/deps/libcdsprpc.so
+        //
+        // All copies are size-verified (if file exists & size matches → skip).
+        // ---- 8< ----
         val filesDirBinary = File(filesDir, BINARY_NAME)
         val assetAvailable = try {
             context.assets.open(BINARY_NAME).close(); true
         } catch (_: Exception) {
             false
         }
-        if (assetAvailable) {
-            if (!filesDirBinary.exists() || shouldUpdateBinary(filesDirBinary)) {
-                copyAssetToFile(BINARY_NAME, filesDirBinary)
-                try { filesDirBinary.setExecutable(true, false) } catch (_: Exception) {}
-                AppLogger.i(TAG, "Installed assets copy to filesDir: ${filesDirBinary.absolutePath} size=${filesDirBinary.length()}")
-            } else {
-                AppLogger.i(TAG, "filesDir binary up-to-date: ${filesDirBinary.absolutePath} size=${filesDirBinary.length()}")
-            }
+        if (!assetAvailable) {
+            AppLogger.e(TAG, "assets/$BINARY_NAME is NOT packaged in APK. " +
+                "Engine start requires assets/libkatago.so as the binary source. " +
+                "Check setup-from-badukai.sh stage P2 accidentally deleted it — it should ONLY delete jniLibs/libkatago.so.")
+            return@withContext false
+        }
+        if (!filesDirBinary.exists() || shouldUpdateBinary(filesDirBinary)) {
+            copyAssetToFile(BINARY_NAME, filesDirBinary)
+            try { filesDirBinary.setExecutable(true, false) } catch (_: Exception) {}
+            AppLogger.i(TAG, "Installed assets→filesDir binary: ${filesDirBinary.absolutePath} size=${filesDirBinary.length()}")
         } else {
-            AppLogger.w(TAG, "assets/$BINARY_NAME not available in APK — Path B/Path C fallback disabled. " +
-                "If Path A fails engine start will fail. Fix: ensure assets/libkatago.so is packaged.")
+            AppLogger.i(TAG, "filesDir binary up-to-date: ${filesDirBinary.absolutePath} size=${filesDirBinary.length()}")
         }
 
-        // ---- Candidate start plans, ordered by preference -----------------------
-        val plans = mutableListOf<StartPlan>()
-        if (linker64 != null && jniLibsBinary != null) {
-            plans += StartPlan("Path A1 (jniLibs + linker64)", jniLibsBinary, true)
+        // assets/deps/*.so → filesDir/*.so (KataGo child-process ld.so deps)
+        val depsAssetFiles: List<String> = try {
+            context.assets.list("deps")?.filter { it.endsWith(".so") }?.toList() ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
         }
-        if (jniLibsBinary != null) {
-            plans += StartPlan("Path A2 (jniLibs PIE direct)", jniLibsBinary, false)
+        AppLogger.i(TAG, "assets/deps declares ${depsAssetFiles.size} .so: ${depsAssetFiles.joinToString()}")
+        for (depName in depsAssetFiles) {
+            val depAssetPath = "deps/$depName"
+            val depOut = File(filesDir, depName)
+            val needCopy = try {
+                if (!depOut.exists()) true
+                else {
+                    val assetSize = context.assets.open(depAssetPath).use { it.available() }
+                    depOut.length() != assetSize.toLong()
+                }
+            } catch (_: Exception) {
+                true
+            }
+            if (needCopy) {
+                copyAssetToFile(depAssetPath, depOut)
+                try { depOut.setExecutable(true, false) } catch (_: Exception) {}
+                AppLogger.i(TAG, "Installed dep: assets/$depAssetPath → ${depOut.absolutePath} size=${depOut.length()}")
+            }
         }
-        if (linker64 != null && filesDirBinary.exists()) {
-            plans += StartPlan("Path B1 (filesDir + linker64)", filesDirBinary, true)
+        if (depsAssetFiles.isEmpty()) {
+            AppLogger.w(TAG, "WARNING: assets/deps/ is empty or missing! If KataGo dies with " +
+                "'libc++_shared.so: cannot open shared object file: No such file or directory' " +
+                "then Stage P3 move-to-assets/deps failed in setup/CI.")
         }
-        if (filesDirBinary.exists()) {
-            plans += StartPlan("Path B2 (filesDir PIE direct)", filesDirBinary, false)
-        }
+        // ---- ---- 8< ---- end of P3 install ----
 
+        // ---- Shared env / args ---------------------------------------------------
+        // P3: LD_LIBRARY_PATH points ONLY at filesDir (where we just installed
+        // libc++_shared.so & friends). NativeLibraryDir is intentionally dropped —
+        // jniLibs is empty, extractNativeLibs=false, so the system never created
+        // any app-lib copies; vendor paths kept in case some device ships OpenCL
+        // ICDs there.
+        val envBase = LinkedHashMap<String, String>().apply {
+            put("LD_LIBRARY_PATH", listOfNotNull(
+                filesDir.absolutePath,
+                hexagonDir.absolutePath,
+                "/vendor/lib64",
+                "/system/vendor/lib64"
+            ).joinToString(":"))
+            put("ADSP_LIBRARY_PATH", listOfNotNull(
+                filesDir.absolutePath,
+                hexagonDir.absolutePath,
+                "/system/lib/rfsa/adsp",
+                "/system/vendor/lib/rfsa/adsp",
+                "/dsp"
+            ).joinToString(";"))
+            put("HOME", filesDir.absolutePath)
+        }
+        val gtpArgs = listOf("gtp", "-model", modelFile.absolutePath, "-config", configFile.absolutePath)
+        val linker64 = LINKER64_CANDIDATES.firstOrNull { File(it).exists() }
+        AppLogger.i(TAG, "Detected linker64: ${linker64 ?: "NONE — Plan 1 skipped"}")
+        AppLogger.i(TAG, "filesDir so inventory (exec candidate list):")
+        filesDir.listFiles()?.filter { it.name.endsWith(".so") }
+            ?.sortedByDescending { it.length() }
+            ?.forEach { f -> AppLogger.i(TAG, "  ${f.name}  ${f.length()} bytes") }
+
+        // ---- Build launch plan list ----------------------------------------------
+        val plans = listOfNotNull(
+            if (linker64 != null) StartPlan("Path B1 (filesDir + linker64)", filesDirBinary, true) else null,
+            StartPlan("Path B2 (filesDir PIE direct)", filesDirBinary, false)
+        )
         AppLogger.i(TAG, "Engine start plans (in order): ${plans.joinToString { it.label }}")
-        require(plans.isNotEmpty()) {
-            "No engine start plans available. Need jniLibs/libkatago.so AND/OR assets/libkatago.so packaged."
-        }
 
-        // ---- Try each plan in order --------------------------------------------
+        // ---- Execute plans in order ----------------------------------------------
         var lastFailureReason: String? = null
         for ((idx, plan) in plans.withIndex()) {
             val attempt = idx + 1
             AppLogger.i(TAG, "--- Plan $attempt/${plans.size}: ${plan.label} ---")
-            val binary = plan.binary
-            if (plan.label.contains("PIE")) {
-                try {
-                    binary.setExecutable(true, false)
-                } catch (_: Exception) {}
+            if (plan.useLinker64) {
+                // link loader already handles protection — no need to chmod +x separately
+            } else {
+                try { plan.binary.setExecutable(true, false) } catch (_: Exception) {}
             }
             val cmd = buildList {
                 if (plan.useLinker64) add(linker64!!)
-                add(binary.absolutePath)
+                add(plan.binary.absolutePath)
                 addAll(gtpArgs)
             }
             AppLogger.i(TAG, "Command: ${cmd.joinToString(" ")}")
@@ -223,24 +286,25 @@ class KataGoEngine(private val context: Context) {
                 AppLogger.i(TAG, "=== ENGINE STARTED SUCCESSFULLY via ${plan.label} ===")
                 return@withContext true
             } else {
-                lastFailureReason = "${plan.label} died within 2s or never launched — see stderr lines above in logcat"
+                lastFailureReason = "${plan.label} died within 2s or never launched — see full stderr above in logcat"
                 AppLogger.e(TAG, "Plan $attempt/${plans.size} FAILED: ${plan.label}")
             }
         }
 
+        // ---- All plans failed ----------------------------------------------------
         AppLogger.e(TAG, "=== ALL ENGINE START PLANS FAILED ===")
-        AppLogger.e(TAG, "Final reason summary: $lastFailureReason")
-        AppLogger.e(TAG, "Diagnostics checklist:")
-        AppLogger.e(TAG, "  • APK unzip: is assets/libkatago.so present? (needed for B fallback)")
-        AppLogger.e(TAG, "  • adb shell run-as com.badukai.next ls -l /data/app/~~*/lib/arm64/  → libkatago.so? (Path A)")
-        AppLogger.e(TAG, "  • adb shell run-as com.badukai.next ls -l files/libkatago.so  → size matches APK entry? (Path B)")
-        AppLogger.e(TAG, "  • adb shell ls -l /system/bin/linker64  → exists? (if no, only PIE-direct plans run)")
+        AppLogger.e(TAG, "Final reason: $lastFailureReason")
+        AppLogger.e(TAG, "Diagnostics (dev only):")
+        AppLogger.e(TAG, "  • APK unzip → assets/libkatago.so MUST exist (is source copy)")
+        AppLogger.e(TAG, "  • adb shell run-as com.badukai.next ls -l files/libkatago.so  ← size equals APK entry?")
+        AppLogger.e(TAG, "  • adb shell ls -l /system/bin/linker64  ← exists? (if not only B2 runs)")
+        AppLogger.e(TAG, "  • Common fails: 'Permission denied' (noexec on files/) → will need Plan adjustment")
         false
     }
 
     /**
-     * Try-launch once. Returns RunOnceResult on success (alive after 2s),
-     * or null on immediate death (diagnostic stderr is logged here).
+     * Try-launch once. Returns [RunOnceResult] on success (alive after 2s),
+     * or null on immediate death with detailed stderr logged to AppLogger.
      */
     private fun runOnce(
         cmd: List<String>,
@@ -249,8 +313,7 @@ class KataGoEngine(private val context: Context) {
     ): RunOnceResult? {
         val builder = ProcessBuilder(cmd)
         builder.directory(workingDir)
-        val env = builder.environment()
-        env.putAll(envBase)
+        builder.environment().putAll(envBase)
 
         AppLogger.i(TAG, "Environment:")
         envBase.forEach { (k, v) -> AppLogger.i(TAG, "  $k=$v") }
@@ -261,7 +324,7 @@ class KataGoEngine(private val context: Context) {
         val r = BufferedReader(InputStreamReader(p.inputStream))
         val er = BufferedReader(InputStreamReader(p.errorStream))
 
-        // Drain any immediate startup stderr so dlopen/linker errors surface in log early
+        // Drain immediate startup stderr (first 200ms) so dlopen/linker surface early
         val startupErr = StringBuilder()
         val startNs = System.nanoTime()
         while (System.nanoTime() - startNs < 200_000_000L) {
@@ -270,7 +333,7 @@ class KataGoEngine(private val context: Context) {
             startupErr.append(line).append('\n')
         }
         if (startupErr.isNotEmpty()) {
-            AppLogger.e(TAG, "Immediate startup stderr (first 200ms):\n$startupErr")
+            AppLogger.e(TAG, "Startup stderr (first 200ms):\n$startupErr")
         }
 
         try { Thread.sleep(2000L) } catch (_: InterruptedException) {}
@@ -305,31 +368,23 @@ class KataGoEngine(private val context: Context) {
         readerJob = scope.launch {
             try {
                 val buffer = StringBuilder()
-                AppLogger.i(TAG, "Reader job started, waiting for output...")
-
+                AppLogger.i(TAG, "Reader job started")
                 while (isActive && isRunning.get()) {
                     val line = withContext(Dispatchers.IO) {
-                        try {
-                            reader?.readLine()
-                        } catch (e: IOException) {
-                            AppLogger.e(TAG, "IOException reading: ${e.message}")
+                        try { reader?.readLine() } catch (e: IOException) {
+                            AppLogger.e(TAG, "IOException reading stdout: ${e.message}")
                             null
                         }
                     }
-
                     if (line == null) {
                         val alive = process?.isAlive
-                        val exit = try { process?.exitValue() } catch (e: Exception) { -999 }
-                        AppLogger.i(TAG, "KataGo stdout stream closed (alive=$alive, exit=$exit)")
+                        val exit = try { process?.exitValue() } catch (_: Exception) { -999 }
+                        AppLogger.i(TAG, "KataGo stdout closed (alive=$alive, exit=$exit)")
                         break
                     }
-
                     AppLogger.d(TAG, "KataGo stdout: $line")
-
                     if (inStreamMode) {
-                        if (line.isNotBlank()) {
-                            responseQueue.offer(line + "\n")
-                        }
+                        if (line.isNotBlank()) responseQueue.offer(line + "\n")
                     } else {
                         buffer.append(line).append("\n")
                         if (line.isEmpty() && buffer.isNotEmpty()) {
@@ -351,19 +406,12 @@ class KataGoEngine(private val context: Context) {
             try {
                 while (isActive && isRunning.get()) {
                     val line = withContext(Dispatchers.IO) {
-                        try {
-                            errorReader?.readLine()
-                        } catch (e: IOException) {
-                            null
-                        }
+                        try { errorReader?.readLine() } catch (_: IOException) { null }
                     }
-
                     if (line == null) {
                         AppLogger.i(TAG, "KataGo stderr stream closed")
                         break
                     }
-
-                    AppLogger.e(TAG, "KataGo stderr: $line")
                     AppLogger.w(TAG, "KataGo stderr: $line")
                 }
             } catch (e: Exception) {
@@ -374,61 +422,30 @@ class KataGoEngine(private val context: Context) {
 
     fun stop() {
         AppLogger.i(TAG, "Stopping KataGo...")
-
         isRunning.set(false)
         _isReady.value = false
-
-        try {
-            sendCommandSync("quit")
-        } catch (e: Exception) {
-        }
-
-        readerJob?.cancel()
-        readerJob = null
-
-        errorReaderJob?.cancel()
-        errorReaderJob = null
-
-        try {
-            writer?.close()
-        } catch (e: Exception) {}
-
-        try {
-            reader?.close()
-        } catch (e: Exception) {}
-
-        try {
-            errorReader?.close()
-        } catch (e: Exception) {}
-
+        try { sendCommandSync("quit") } catch (_: Exception) {}
+        readerJob?.cancel() ; readerJob = null
+        errorReaderJob?.cancel() ; errorReaderJob = null
+        try { writer?.close() } catch (_: Exception) {}
+        try { reader?.close() } catch (_: Exception) {}
+        try { errorReader?.close() } catch (_: Exception) {}
         process?.let { p ->
-            try {
-                if (!p.waitFor(1, TimeUnit.SECONDS)) {
-                    p.destroyForcibly()
-                }
-            } catch (e: Exception) {
-                p.destroyForcibly()
-            }
+            try { if (!p.waitFor(1, TimeUnit.SECONDS)) p.destroyForcibly() }
+            catch (_: Exception) { p.destroyForcibly() }
         }
-
-        process = null
-        writer = null
-        reader = null
+        process = null ; writer = null ; reader = null ; errorReader = null
         responseQueue.clear()
-
         AppLogger.i(TAG, "KataGo stopped")
     }
 
-    fun sendCommand(command: String): Boolean {
-        return sendCommandSync(command)
-    }
+    fun sendCommand(command: String): Boolean = sendCommandSync(command)
 
     private fun sendCommandSync(command: String): Boolean {
         if (!isRunning.get() && command != "quit") {
             AppLogger.w(TAG, "Cannot send command, engine not running")
             return false
         }
-
         return try {
             AppLogger.d(TAG, "Sending: $command")
             writer?.write(command)
@@ -442,18 +459,15 @@ class KataGoEngine(private val context: Context) {
     }
 
     fun waitForResponse(timeoutMs: Int = 30000): String {
-        return try {
-            val response = responseQueue.poll(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
-            response ?: ""
-        } catch (e: InterruptedException) {
-            ""
-        }
+        return try { responseQueue.poll(timeoutMs.toLong(), TimeUnit.MILLISECONDS) ?: "" }
+        catch (_: InterruptedException) { "" }
     }
 
-    /**
-     * Execute a simple GTP command returning success/failure.
-     */
-    private suspend fun executeGtpCommand(cmd: String, tag: String, timeout: Int = GameConstants.GTP_TIMEOUT_DEFAULT): Boolean = withContext(Dispatchers.IO) {
+    private suspend fun executeGtpCommand(
+        cmd: String,
+        tag: String,
+        timeout: Int = GameConstants.GTP_TIMEOUT_DEFAULT
+    ): Boolean = withContext(Dispatchers.IO) {
         commandMutex.withLock {
             try {
                 responseQueue.clear()
@@ -471,10 +485,8 @@ class KataGoEngine(private val context: Context) {
             try {
                 responseQueue.clear()
                 sendCommand("genmove $color")
-                val response = waitForResponse(GameConstants.GTP_TIMEOUT_GENMOVE)
-                val move = parseGtpResponse(response)
-                AppLogger.i(TAG, "Generated move for $color: $move")
-                move
+                parseGtpResponse(waitForResponse(GameConstants.GTP_TIMEOUT_GENMOVE))
+                    ?.also { AppLogger.i(TAG, "Generated move for $color: $it") }
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Error generating move", e)
                 null
@@ -483,19 +495,19 @@ class KataGoEngine(private val context: Context) {
     }
 
     /**
-     * Request KataGo analysis for current position.
-     * Verified locally: kata-analyze produces no output on this engine,
-     * so lz-analyze is PRIMARY (Leela Zero info format works reliably).
+     * Request KataGo analysis. Verified locally: kata-analyze produces no output on
+     * this engine build, so lz-analyze is PRIMARY (Leela Zero info format works).
      */
-    suspend fun analyzePosition(color: String = "black", maxVisits: Int = GameConstants.ANALYSIS_VISITS): AnalyzeResult? = withContext(Dispatchers.IO) {
+    suspend fun analyzePosition(
+        color: String = "black",
+        maxVisits: Int = GameConstants.ANALYSIS_VISITS
+    ): AnalyzeResult? = withContext(Dispatchers.IO) {
         commandMutex.withLock {
             lastAnalysisError = ""
-
             val lz = tryLzAnalyze()
             if (lz != null) return@withLock lz
             if (lastAnalysisError.isEmpty()) lastAnalysisError = "lz-analyze failed"
-
-            return@withLock null
+            null
         }
     }
 
@@ -509,10 +521,7 @@ class KataGoEngine(private val context: Context) {
             for (i in 0 until 3) {
                 val line = waitForResponse(GameConstants.LZ_ANALYZE_RETRY_TIMEOUT)
                 if (line.isBlank()) break
-                if (line.contains("info move")) {
-                    infoLine = line
-                    break
-                }
+                if (line.contains("info move")) { infoLine = line ; break }
             }
 
             inStreamMode = false
@@ -535,9 +544,8 @@ class KataGoEngine(private val context: Context) {
     }
 
     /**
-     * Parse Leela Zero "info" format from lz-analyze:
-     * "info move E5 visits 4812 winrate 4492 ... info move F5 visits ..."
-     * winrate unit: 10000 = 100% (so 4492 = 44.92%).
+     * Parse a single Leela Zero "info move <coord> visits <n> winrate <wr_raw> ..."
+     * line into an AnalyzeResult. winrate unit is KataGo standard: 10000 = 100%.
      */
     private fun parseLzInfo(line: String): AnalyzeResult? {
         val regex = Regex("info move (\\S+) visits (\\d+) winrate (-?\\d+)")
@@ -546,15 +554,15 @@ class KataGoEngine(private val context: Context) {
         var bestWinrate = 0f
 
         for (m in matches) {
-            val coord = m.groupValues[1]
-            val visits = m.groupValues[2].toIntOrNull() ?: 0
-            val wrRaw = m.groupValues[3].toFloatOrNull() ?: continue
-            val winrate = wrRaw / GameConstants.WINRATE_UNIT
+            val coord     = m.groupValues[1]
+            val visits    = m.groupValues[2].toIntOrNull() ?: 0
+            val wrRaw     = m.groupValues[3].toFloatOrNull() ?: continue
+            val winrate   = wrRaw / GameConstants.WINRATE_UNIT
             val cm = CandidateMove.fromGtp(coord, 19) ?: continue
             candidates.add(cm.copy(
                 winRate = winrate,
-                visits = visits,
-                isBest = candidates.isEmpty()
+                visits  = visits,
+                isBest  = candidates.isEmpty()
             ))
             if (candidates.size == 1) bestWinrate = winrate
         }
@@ -569,10 +577,10 @@ class KataGoEngine(private val context: Context) {
     }
 
     suspend fun playMove(color: String, move: String): Boolean = executeGtpCommand("play $color $move", "playMove")
-    suspend fun setBoardSize(size: Int): Boolean = executeGtpCommand("boardsize $size", "setBoardSize")
-    suspend fun clearBoard(): Boolean = executeGtpCommand("clear_board", "clearBoard")
-    suspend fun setKomi(komi: Float): Boolean = executeGtpCommand("komi $komi", "setKomi")
-    suspend fun undo(): Boolean = executeGtpCommand("undo", "undo")
+    suspend fun setBoardSize(size: Int): Boolean     = executeGtpCommand("boardsize $size", "setBoardSize")
+    suspend fun clearBoard(): Boolean                = executeGtpCommand("clear_board", "clearBoard")
+    suspend fun setKomi(komi: Float): Boolean       = executeGtpCommand("komi $komi", "setKomi")
+    suspend fun undo(): Boolean                      = executeGtpCommand("undo", "undo")
 
     suspend fun getFinalScore(): String? = withContext(Dispatchers.IO) {
         commandMutex.withLock {
@@ -591,25 +599,24 @@ class KataGoEngine(private val context: Context) {
         val trimmed = response.trim()
         return when {
             trimmed.startsWith("= ") -> trimmed.substring(2).trim().split("\n").firstOrNull()?.trim()
-            trimmed.startsWith("=") -> trimmed.substring(1).trim().split("\n").firstOrNull()?.trim()
-            else -> null
+            trimmed.startsWith("=")  -> trimmed.substring(1).trim().split("\n").firstOrNull()?.trim()
+            else                     -> null
         }
     }
 
+    /** True when the filesDir copy is stale vs the APK assets copy (size-based check). */
     private fun shouldUpdateBinary(binaryFile: File): Boolean {
-        try {
+        return try {
             val assetSize = context.assets.open(BINARY_NAME).use { it.available() }
-            return binaryFile.length() != assetSize.toLong()
-        } catch (e: Exception) {
-            return true
+            binaryFile.length() != assetSize.toLong()
+        } catch (_: Exception) {
+            true
         }
     }
 
     private fun copyAssetToFile(assetPath: String, outFile: File) {
         context.assets.open(assetPath).use { input ->
-            FileOutputStream(outFile).use { output ->
-                input.copyTo(output)
-            }
+            FileOutputStream(outFile).use { output -> input.copyTo(output) }
         }
         AppLogger.i(TAG, "Asset copied: $assetPath -> ${outFile.absolutePath}")
     }
