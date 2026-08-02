@@ -133,7 +133,7 @@ class GameViewModel : ViewModel() {
                 aiMoveTimeSeconds = s.aiMoveTimeSeconds,
                 aiCanResign = s.aiCanResign,
                 aiModelSource = s.aiModelSource,
-                customModelDisplayName = s.customModelDisplayName
+                customModelDisplayName = s.customModelDisplayName.ifBlank { "" }
             )
             soundPlayer?.setPlaceSound(s.placeSoundIndex)
             BadukNextColors.setTheme(s.currentTheme)
@@ -153,23 +153,25 @@ class GameViewModel : ViewModel() {
 
         viewModelScope.launch {
             try {
-                val source = settingsStore.aiModelSource
-                val customPath = settingsStore.customModelPath.takeIf { it.isNotBlank() }
+                val source: ModelSource = settingsStore.aiModelSource
+                val customPath: String? = settingsStore.customModelPath.takeIf { it.isNotBlank() }
                 val success = engine.start(source = source, customStoredPath = customPath, legacyModel = model)
                 if (success) {
                     engine.setBoardSize(_state.value.boardSize)
                     engine.clearBoard()
                     engine.setKomi(GameConstants.DEFAULT_KOMI)
                     engine.sendCommand("time_settings 0 ${_state.value.aiMoveTimeSeconds} 1")
+                    val msg: String = when (source) {
+                        ModelSource.BUNDLED_ASSET -> "Ready (内置 6b，离线可用)"
+                        ModelSource.DOWNLOADED -> "Ready (在线下载 6b)"
+                        ModelSource.CUSTOM -> "Ready (自定义权重)"
+                        else -> "Ready (内置 6b，离线可用)"
+                    }
                     _state.value = _state.value.copy(
                         isEngineReady = true,
                         isEngineStarting = false,
                         selectedModel = model,
-                        gameMessage = when (source) {
-                            ModelSource.BUNDLED_ASSET -> "Ready (内置 6b，离线可用)"
-                            ModelSource.DOWNLOADED -> "Ready (在线下载 6b)"
-                            ModelSource.CUSTOM -> "Ready (自定义权重)"
-                        }
+                        gameMessage = msg
                     )
                     if (_state.value.playerColor == StoneColor.WHITE) {
                         requestAiMove()

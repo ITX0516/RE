@@ -180,9 +180,13 @@ object ModelManager {
             }
             target.parentFile?.mkdirs()
             val am = context.assets
-            // Does the APK actually have our asset?
-            val haveAsset = runCatching { am.list("models")?.contains(MODEL_FILENAME) }.getOrDefault(false) ||
-                           runCatching { am.open(BUNDLED_ASSET_PATH).use { true } }.getOrDefault(false)
+            // Does the APK actually have our asset? am.list("models") can return
+            // null for asset packs so fallback to a quick open() probe. Both
+            // branches can return nullable Boolean, collapse to Boolean with
+            // == true to satisfy the Kotlin typechecker strictly.
+            val listedOk: Boolean = runCatching { am.list("models")?.contains(MODEL_FILENAME) }.getOrNull() == true
+            val openOk: Boolean = runCatching { am.open(BUNDLED_ASSET_PATH).use { true } }.getOrDefault(false)
+            val haveAsset: Boolean = listedOk || openOk
             if (!haveAsset) {
                 return@withContext Result.failure(IllegalStateException(
                     "Bundled asset models/$MODEL_FILENAME missing from APK assets! " +
