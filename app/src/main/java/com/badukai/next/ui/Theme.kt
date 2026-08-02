@@ -1,6 +1,18 @@
 package com.badukai.next.ui
 
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 enum class GameTheme(val displayName: String) {
     WARM_LIGHT("Warm Light"),
@@ -149,7 +161,7 @@ object ThemePresets {
         ThinkingIndicator = Color(0xFF00D4AA),
         ThinkingBg = Color(0xFF1A3A34),
 
-        CoordinateText = Color(0xFF2A2010).copy(alpha = 0.5f)
+        CoordinateText = Color(0xFFC8C8D0).copy(alpha = 0.7f) // light color on dark bg
     )
 
     val MODERN_MINIMAL = ThemeColors(
@@ -175,9 +187,9 @@ object ThemePresets {
         TextSecondary = Color(0xFF8A8A8A),
         TextOnAccent = Color(0xFFFFFFFF),
 
-        Accent = Color(0xFF1A1A1A),
-        AccentVariant = Color(0xFF3A3A3A),
-        AccentLight = Color(0xFFEEEEEE),
+        Accent = Color(0xFF2D6B8F), // distinct blue accent instead of near-black
+        AccentVariant = Color(0xFF1A4D6B),
+        AccentLight = Color(0xFFD6E4ED),
 
         Divider = Color(0xFFE5E5E5),
 
@@ -191,8 +203,8 @@ object ThemePresets {
         Warning = Color(0xFFF57C00),
         WarningLight = Color(0xFFFFF3E0),
 
-        ThinkingIndicator = Color(0xFF1A1A1A),
-        ThinkingBg = Color(0xFFEEEEEE),
+        ThinkingIndicator = Color(0xFF2D6B8F),
+        ThinkingBg = Color(0xFFD6E4ED),
 
         CoordinateText = Color(0xFF2D2D2D).copy(alpha = 0.45f)
     )
@@ -301,4 +313,43 @@ object BadukNextColors {
     val ThinkingBg get() = _current.ThinkingBg
 
     val CoordinateText get() = _current.CoordinateText
+}
+
+// ── Material3 Typography (centralized, replaces ad-hoc fontSize values) ──
+val BadukNextTypography = Typography(
+    headlineLarge = TextStyle(fontSize = 34.sp, fontWeight = FontWeight.Bold),
+    headlineMedium = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Bold),
+    titleMedium = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+    bodyMedium = TextStyle(fontSize = 13.sp),
+    bodySmall = TextStyle(fontSize = 12.sp),
+    labelLarge = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+    labelMedium = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium),
+    labelSmall = TextStyle(fontSize = 11.sp)
+)
+
+// ── Material3 Shapes (centralized, replaces ad-hoc cornerRadius values) ──
+val BadukNextShapes = Shapes(
+    small = RoundedCornerShape(4.dp),
+    medium = RoundedCornerShape(8.dp),
+    large = RoundedCornerShape(16.dp)
+)
+
+// ── CompositionLocal for theme-aware recomposition ──
+val LocalThemeColors = compositionLocalOf { ThemePresets.WARM_LIGHT }
+
+/**
+ * Apply the BadukNext theme: sets up CompositionLocal, MaterialTheme, and
+ * syncs with the legacy BadukNextColors singleton for backward compatibility.
+ */
+@Composable
+fun BadukNextTheme(theme: GameTheme, content: @Composable () -> Unit) {
+    val colors = ThemePresets.forTheme(theme)
+    LaunchedEffect(theme) { BadukNextColors.setTheme(theme) }
+    CompositionLocalProvider(LocalThemeColors provides colors) {
+        MaterialTheme(
+            typography = BadukNextTypography,
+            shapes = BadukNextShapes,
+            content = content
+        )
+    }
 }

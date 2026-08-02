@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import com.badukai.next.game.GameConstants
 import com.badukai.next.game.GoBoard
 import com.badukai.next.game.Intersection
 import com.badukai.next.game.Point
@@ -208,19 +209,19 @@ private fun DrawScope.drawTerritory(boardSize: Int, padding: Float, cellSize: Fl
         for (x in 0 until boardSize) {
             val idx = y * boardSize + x
             val val_ = ownership.getOrElse(idx) { 0f }
-            if (kotlin.math.abs(val_) < 0.15f) continue // unsettled
+            if (kotlin.math.abs(val_) < GameConstants.TERRITORY_THRESHOLD) continue // unsettled
 
             val cx = padding + x * cellSize
             val cy = padding + y * cellSize
 
-            if (val_ > 0.15f) {
+            if (val_ > GameConstants.TERRITORY_THRESHOLD) {
                 // Black territory — dark square
                 drawRect(
                     color = BadukNextColors.BlackStone.copy(alpha = 0.50f),
                     topLeft = Offset(cx - sqSize / 2, cy - sqSize / 2),
                     size = androidx.compose.ui.geometry.Size(sqSize, sqSize)
                 )
-            } else if (val_ < -0.15f) {
+            } else if (val_ < -GameConstants.TERRITORY_THRESHOLD) {
                 // White territory — light square with border
                 drawRect(
                     color = BadukNextColors.WhiteStone.copy(alpha = 0.65f),
@@ -297,17 +298,22 @@ private fun getStarPoints(boardSize: Int): List<Point> {
     }
 }
 
+// Reusable Paint objects to avoid per-frame allocation
+private val textPaint = Paint().apply {
+    isAntiAlias = true
+    isFakeBoldText = true
+}
+private val coordPaint = Paint().apply {
+    textAlign = Paint.Align.CENTER
+    isAntiAlias = true
+}
+
 // Draw text at a board position (used for winrate labels on candidate circles)
 private fun DrawScope.drawTextOnBoard(text: String, cx: Float, cy: Float, size: Float, color: Color) {
-    val paint = Paint().apply {
-        this.color = color.toArgb()
-        textSize = size
-        textAlign = Paint.Align.CENTER
-        isAntiAlias = true
-        isFakeBoldText = true
-    }
+    textPaint.color = color.toArgb()
+    textPaint.textSize = size
     drawIntoCanvas { canvas ->
-        canvas.nativeCanvas.drawText(text, cx, cy + size * 0.35f, paint)
+        canvas.nativeCanvas.drawText(text, cx, cy + size * 0.35f, textPaint)
     }
 }
 
@@ -318,28 +324,22 @@ private fun DrawScope.drawCoordinates(
     sizePx: Float
 ) {
     val coordColor = BadukNextColors.CoordinateText
-    val argb = coordColor.toArgb()
-    val paint = Paint().apply {
-        color = argb
-        textSize = (cellSize * 0.33f).coerceIn(12f, 32f)
-        textAlign = Paint.Align.CENTER
-        isAntiAlias = true
-    }
-    val letters = "ABCDEFGHJKLMNOPQRST"
-    val textOffset = cellSize * 0.5f + paint.textSize * 0.35f
+    coordPaint.color = coordColor.toArgb()
+    coordPaint.textSize = (cellSize * 0.33f).coerceIn(12f, 32f)
+    val textOffset = cellSize * 0.5f + coordPaint.textSize * 0.35f
 
     drawIntoCanvas { canvas ->
         val nc = canvas.nativeCanvas
         for (i in 0 until boardSize) {
             val x = padding + i * cellSize
-            nc.drawText(letters[i].toString(), x, padding - textOffset + paint.textSize, paint)
-            nc.drawText(letters[i].toString(), x, sizePx - padding + textOffset, paint)
+            nc.drawText(Point.GTP_LETTERS[i].toString(), x, padding - textOffset + coordPaint.textSize, coordPaint)
+            nc.drawText(Point.GTP_LETTERS[i].toString(), x, sizePx - padding + textOffset, coordPaint)
         }
         for (i in 0 until boardSize) {
             val y = padding + i * cellSize
             val num = (boardSize - i).toString()
-            nc.drawText(num, padding - textOffset, y + paint.textSize * 0.35f, paint)
-            nc.drawText(num, sizePx - padding + textOffset, y + paint.textSize * 0.35f, paint)
+            nc.drawText(num, padding - textOffset, y + coordPaint.textSize * 0.35f, coordPaint)
+            nc.drawText(num, sizePx - padding + textOffset, y + coordPaint.textSize * 0.35f, coordPaint)
         }
     }
 }

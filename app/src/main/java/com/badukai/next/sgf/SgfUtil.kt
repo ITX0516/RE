@@ -11,7 +11,10 @@ import com.badukai.next.logging.AppLogger
 object SgfUtil {
 
     private const val TAG = "SgfUtil"
-    private val letters = "abcdefghijklmnopqrst" // SGF uses a-t, no i skipped
+    // Standard SGF alphabet (skips 'i' to avoid confusion with 'j' per FF[4] spec)
+    private val letters = "abcdefghjklmnopqrst"
+    // Legacy alphabet (includes 'i') for backward-compatible parsing of old exports
+    private val legacyLetters = "abcdefghijklmnopqrst"
 
     /** Convert a board point to SGF coordinate (e.g. (3,3) -> "dd" on 19x19). */
     fun pointToSgf(p: Point, boardSize: Int): String {
@@ -20,11 +23,14 @@ object SgfUtil {
         return "${letters[x]}${letters[boardSize - 1 - y]}"
     }
 
-    /** Convert SGF coordinate to a board point. */
+    /** Convert SGF coordinate to a board point. Supports both standard (skip-i)
+     *  and legacy (with-i) alphabets for backward compatibility. */
     fun sgfToPoint(sgf: String, boardSize: Int): Point? {
         if (sgf.length < 2) return null
         val x = letters.indexOf(sgf[0].lowercaseChar())
+            .takeIf { it >= 0 } ?: legacyLetters.indexOf(sgf[0].lowercaseChar())
         val yFromTop = letters.indexOf(sgf[1].lowercaseChar())
+            .takeIf { it >= 0 } ?: legacyLetters.indexOf(sgf[1].lowercaseChar())
         if (x < 0 || yFromTop < 0) return null
         val y = boardSize - 1 - yFromTop
         if (x >= boardSize || y < 0 || y >= boardSize) return null

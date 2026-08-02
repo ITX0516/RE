@@ -1,13 +1,15 @@
 package com.badukai.next.analysis
 
+import com.badukai.next.game.Point
+
 /**
  * Result from kata-analyze command
  */
 data class AnalyzeResult(
-    val winrate: Double,
-    val scoreLead: Double,
+    val winrate: Float,
+    val scoreLead: Float,
     val moves: List<CandidateMove>,
-    val ownership: List<Double>?
+    val ownership: List<Float>?
 )
 
 /**
@@ -22,11 +24,10 @@ data class CandidateMove(
     val isBest: Boolean = false
 ) {
     companion object {
-        private val letters = "ABCDEFGHJKLMNOPQRST"
         fun fromGtp(move: String, boardSize: Int): CandidateMove? {
             if (move == "pass" || move.length < 2) return null
             val col = move[0].uppercaseChar()
-            val colIndex = letters.indexOf(col)
+            val colIndex = Point.GTP_LETTERS.indexOf(col)
             if (colIndex < 0 || colIndex >= boardSize) return null
             val row = move.substring(1).toIntOrNull() ?: return null
             return CandidateMove(x = colIndex, y = boardSize - row)

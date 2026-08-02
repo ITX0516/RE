@@ -9,22 +9,23 @@ data class Point(val x: Int, val y: Int) {
      * Note: GTP skips 'I' to avoid confusion with 'J'
      */
     fun toGtp(boardSize: Int): String {
-        val letters = "ABCDEFGHJKLMNOPQRST" // No 'I'
-        val col = letters[x]
+        val col = GTP_LETTERS[x]
         val row = boardSize - y
         return "$col$row"
     }
 
     companion object {
+        /** GTP coordinate letters (skips 'I' to avoid confusion with 'J') */
+        const val GTP_LETTERS = "ABCDEFGHJKLMNOPQRST"
+
         /**
          * Parse a GTP coordinate (e.g., "D4") to a Point
          */
         fun fromGtp(gtp: String, boardSize: Int): Point? {
             if (gtp.length < 2) return null
 
-            val letters = "ABCDEFGHJKLMNOPQRST"
             val col = gtp[0].uppercaseChar()
-            val colIndex = letters.indexOf(col)
+            val colIndex = GTP_LETTERS.indexOf(col)
             if (colIndex < 0) return null
 
             val row = gtp.substring(1).toIntOrNull() ?: return null
@@ -266,6 +267,11 @@ class GoBoard(val size: Int = 19) {
                 newBoard.board[y][x] = board[y][x]
             }
         }
+        newBoard.koPoint = koPoint
+        newBoard.capturedBlack = capturedBlack
+        newBoard.capturedWhite = capturedWhite
+        newBoard.consecutivePasses = consecutivePasses
+        newBoard.moveHistory.addAll(moveHistory)
         return newBoard
     }
 

@@ -68,7 +68,7 @@ data class GameState(
     val aiMoveTimeSeconds: Int = 20,
     val aiCanResign: Boolean = true,
     val handicap: Int = 0,
-    val komi: Float = 7.5f,
+    val komi: Float = GameConstants.DEFAULT_KOMI,
     val showTerritoryOverlay: Boolean = false,
     val territoryResult: String = "",
     val topCandidatePoints: List<Pair<Int,Int>> = emptyList(),
@@ -151,7 +151,7 @@ class GameViewModel : ViewModel() {
                 if (success) {
                     engine.setBoardSize(_state.value.boardSize)
                     engine.clearBoard()
-                    engine.setKomi(7.5f)
+                    engine.setKomi(GameConstants.DEFAULT_KOMI)
                     // Apply AI speed + resign settings
                     engine.sendCommand("time_settings 0 ${_state.value.aiMoveTimeSeconds} 1")
                     _state.value = _state.value.copy(
@@ -292,7 +292,7 @@ class GameViewModel : ViewModel() {
             lastMovePoint = point,
             capturedByBlack = board.getCapturedWhite(),
             capturedByWhite = board.getCapturedBlack(),
-            analysisMoves = recorder.rebuildAnalysisMoves(),
+            analysisMoves = recorder.getAnalysisMoves(),
             gameMessage = if (isPlayerTurn) "Your turn" else "AI thinking..."
         )
 
@@ -310,40 +310,39 @@ class GameViewModel : ViewModel() {
         val color = _state.value.currentPlayer.toGtp()
         val gen = gameGeneration
         viewModelScope.launch {
-            val result = engine?.analyzePosition(color, 100) // lower visits for speed
+            val result = engine?.analyzePosition(color, GameConstants.ANALYSIS_VISITS) // lower visits for speed
             if (result == null) {
                 _state.value = _state.value.copy(analysisError = engine?.lastAnalysisError ?: "analysis failed")
                 return@launch
             }
             if (gen != gameGeneration) return@launch  // stale game — discard
             val s = _state.value
-            val candidates = result.moves.take(10).map { cm ->
+            val candidates = result.moves.take(GameConstants.CANDIDATE_DISPLAY_COUNT).map { cm ->
                 val coord = if (cm.x >= 0 && cm.y >= 0) {
-                    val letters = "ABCDEFGHJKLMNOPQRST"
-                    "${letters[cm.x]}${s.boardSize - cm.y}"
+                    "${Point.GTP_LETTERS[cm.x]}${s.boardSize - cm.y}"
                 } else "pass"
-                val wr = cm.winRate?.let { "%.1f%%".format(it * 100) } ?: "-"
+                val wr = cm.winRate?.let { "%.1f%%".format(it * GameConstants.WINRATE_UNIT / 100f) } ?: "-"
                 val sc = cm.scoreLead?.let { if (it >= 0) "+%.1f".format(it) else "%.1f".format(it) } ?: "-"
                 "$coord  $wr  $sc"
             }
-            val topPts = result.moves.take(3).mapNotNull { cm ->
+            val topPts = result.moves.take(GameConstants.TOP_CANDIDATE_COUNT).mapNotNull { cm ->
                 if (cm.x >= 0 && cm.y >= 0) Pair(cm.x, cm.y) else null
             }
-            val topWrs = result.moves.take(3).map { cm -> cm.winRate ?: 0.5f }
+            val topWrs = result.moves.take(GameConstants.TOP_CANDIDATE_COUNT).map { cm -> cm.winRate ?: 0.5f }
             // Convert winrate to Black's perspective for consistent history
             val blackWinrate = if (s.currentPlayer == StoneColor.WHITE)
-                1f - result.winrate.toFloat() else result.winrate.toFloat()
+                1f - result.winrate else result.winrate
             val newHistory = if (recordToHistory) s.winrateHistory + blackWinrate else s.winrateHistory
-            val newScoreHistory = if (recordToHistory) s.scoreLeadHistory + result.scoreLead.toFloat() else s.scoreLeadHistory
+            val newScoreHistory = if (recordToHistory) s.scoreLeadHistory + result.scoreLead else s.scoreLeadHistory
 
             // If territory overlay is active, keep the heuristic annotation fresh
             val freshOwnership = if (s.showTerritoryOverlay)
-                computeHeuristicOwnership(s.board) else (result.ownership?.map { it.toFloat() })
+                computeHeuristicOwnership(s.board) else result.ownership
             _state.value = s.copy(
                 // state.winrate = White's winrate (winrate bar expects White perspective)
                 winrate = if (s.currentPlayer == StoneColor.WHITE)
-                    result.winrate.toFloat() else 1f - result.winrate.toFloat(),
-                scoreLead = result.scoreLead.toFloat(),
+                    result.winrate else 1f - result.winrate,
+                scoreLead = result.scoreLead,
                 ownership = freshOwnership,
                 candidateInfo = candidates,
                 topCandidatePoints = topPts,
@@ -368,8 +367,8 @@ class GameViewModel : ViewModel() {
             // Mover's winrate change: if White moved, black improving hurts White
             val moverDelta = if (moveColor == StoneColor.WHITE) -delta else delta
             qualities[moveIdx] = when {
-                moverDelta <= -0.10f -> 2
-                moverDelta <= -0.05f -> 1
+                moverDelta <= -GameConstants.MISTAKE_THRESHOLD_MAX -> 2
+                moverDelta <= -GameConstants.MISTAKE_THRESHOLD_MIN -> 1
                 else -> 0
             }
         }
@@ -423,36 +422,17 @@ class GameViewModel : ViewModel() {
 
         when {
             move == null -> _state.value = _state.value.copy(gameMessage = "AI returned no move")
-            move.equals("pass", ignoreCase = true) -> {
-                val m = Move.Pass(color)
-                s.board.playMove(m)
-                recorder.recordMove(m)
-                _state.value = _state.value.copy(
-                    currentPlayer = color.opposite(), isPlayerTurn = true,
-                    lastMovePoint = null, gameMessage = "AI passed. Your turn",
-                    analysisMoves = recorder.rebuildAnalysisMoves()
-                )
-                if (s.board.isGameOver) handleGameEnd()
-            }
+            move.equals("pass", ignoreCase = true) -> handleAiPass(color)
             move.equals("resign", ignoreCase = true) -> {
                 if (!s.aiCanResign) {
-                    // Resignation disabled — treat as pass
-                    val m = Move.Pass(color)
-                    s.board.playMove(m)
-                    recorder.recordMove(m)
-                    _state.value = _state.value.copy(
-                        currentPlayer = color.opposite(), isPlayerTurn = true,
-                        lastMovePoint = null, gameMessage = "AI passed. Your turn",
-                        analysisMoves = recorder.rebuildAnalysisMoves()
-                    )
-                    if (s.board.isGameOver) handleGameEnd()
+                    handleAiPass(color)
                 } else {
                     val m = Move.Resign(color)
                     s.board.playMove(m)
                     recorder.recordMove(m)
                     _state.value = _state.value.copy(
                         gameMessage = "AI resigned. You win!",
-                        analysisMoves = recorder.rebuildAnalysisMoves(),
+                        analysisMoves = recorder.getAnalysisMoves(),
                         gameResult = GameResult.WIN
                     )
                 }
@@ -470,7 +450,7 @@ class GameViewModel : ViewModel() {
                         capturedByBlack = s.board.getCapturedWhite(),
                         capturedByWhite = s.board.getCapturedBlack(),
                         gameMessage = "Your turn",
-                        analysisMoves = recorder.rebuildAnalysisMoves()
+                        analysisMoves = recorder.getAnalysisMoves()
                     )
                     requestAnalysis()  // after state update → correct perspective
                 } else {
@@ -479,6 +459,19 @@ class GameViewModel : ViewModel() {
                 }
             }
         }
+    }
+
+    private fun handleAiPass(color: StoneColor) {
+        val s = _state.value
+        val m = Move.Pass(color)
+        s.board.playMove(m)
+        recorder.recordMove(m)
+        _state.value = _state.value.copy(
+            currentPlayer = color.opposite(), isPlayerTurn = true,
+            lastMovePoint = null, gameMessage = "AI passed. Your turn",
+            analysisMoves = recorder.getAnalysisMoves()
+        )
+        if (s.board.isGameOver) handleGameEnd()
     }
 
     fun pass() {
@@ -492,7 +485,7 @@ class GameViewModel : ViewModel() {
         _state.value = s.copy(
             currentPlayer = passer.opposite(), isPlayerTurn = false,
             lastMovePoint = null, gameMessage = if (isGameOver) "Passed" else "You passed. AI thinking...",
-            analysisMoves = recorder.rebuildAnalysisMoves()
+            analysisMoves = recorder.getAnalysisMoves()
         )
         viewModelScope.launch {
             // Sync engine pass BEFORE final_score / next genmove
@@ -557,7 +550,7 @@ class GameViewModel : ViewModel() {
             capturedByBlack = s.board.getCapturedWhite(),
             capturedByWhite = s.board.getCapturedBlack(),
             gameMessage = "Undone. Your turn",
-            analysisMoves = recorder.rebuildAnalysisMoves(),
+            analysisMoves = recorder.getAnalysisMoves(),
             winrateHistory = newWrHistory,
             scoreLeadHistory = newSlHistory
         )
@@ -576,7 +569,7 @@ class GameViewModel : ViewModel() {
         if (newVal) {
             // Compute heuristic ownership synchronously so the board colors immediately
             val ownership = computeHeuristicOwnership(s.board)
-            val (blackTerr, whiteTerr) = countTerritoryFromOwnership(ownership, s.boardSize)
+            val (blackTerr, whiteTerr) = countTerritoryFromOwnership(ownership, s.board)
             val nonZero = ownership.count { it != 0f }
             val blackScore = blackTerr + s.board.getCapturedWhite().toFloat()
             val whiteScore = whiteTerr + s.board.getCapturedBlack().toFloat() + s.komi
@@ -656,10 +649,14 @@ class GameViewModel : ViewModel() {
         return ownership
     }
 
-    private fun countTerritoryFromOwnership(ownership: List<Float>, size: Int): Pair<Float, Float> {
+    private fun countTerritoryFromOwnership(ownership: List<Float>, board: GoBoard): Pair<Float, Float> {
         var black = 0f
         var white = 0f
-        for (i in 0 until size * size) {
+        val size = board.size
+        for (y in 0 until size) for (x in 0 until size) {
+            // Only count empty intersections as territory, skip stones
+            if (board.get(x, y) != Intersection.EMPTY) continue
+            val i = y * size + x
             when {
                 ownership.getOrElse(i) { 0f } > 0.5f -> black++
                 ownership.getOrElse(i) { 0f } < -0.5f -> white++
@@ -722,7 +719,7 @@ class GameViewModel : ViewModel() {
                 is Move.Stone -> m.color.opposite()
                 else -> StoneColor.BLACK
             }
-            val moves = recorder.rebuildAnalysisMoves()
+            val moves = recorder.getAnalysisMoves()
             _state.value = _state.value.copy(
                 gameMode = GameMode.ANALYZE,
                 analysisMoves = moves,
@@ -949,7 +946,7 @@ class GameViewModel : ViewModel() {
         for (m in moves) recorder.recordMove(m)
         _state.value = s.copy(
             board = newBoard,
-            analysisMoves = recorder.rebuildAnalysisMoves(),
+            analysisMoves = recorder.getAnalysisMoves(),
             analysisMoveIndex = moves.size,
             currentPlayer = moves.lastOrNull()?.let {
                 (it as? Move.Stone)?.color?.opposite() ?: StoneColor.BLACK

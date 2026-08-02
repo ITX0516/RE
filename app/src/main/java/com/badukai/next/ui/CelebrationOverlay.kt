@@ -8,7 +8,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,14 +59,12 @@ fun CelebrationOverlay(result: GameResult, onDismiss: () -> Unit) {
                 fontWeight = FontWeight.Bold
             )
             Spacer(Modifier.height(24.dp))
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(colors.Accent)
-                    .clickable(onClick = onDismiss)
-                    .padding(horizontal = 40.dp, vertical = 12.dp)
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(contentColor = colors.TextOnAccent),
+                modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(colors.Accent)
             ) {
-                Text("Continue", color = colors.TextOnAccent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text("Continue", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 40.dp))
             }
         }
     }
@@ -121,11 +121,16 @@ private fun FallingParticles(result: GameResult) {
         progress.animateTo(1f, animationSpec = tween(6000, easing = LinearEasing))
     }
 
+    // Clean up animation if overlay is dismissed early
+    DisposableEffect(result) {
+        onDispose { progress.snapTo(1f) }
+    }
+
     Canvas(modifier = Modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
         val t = progress.value
-        val dt = 0.016f * t * 100f
+        val dt = 0.016f * 60f // constant dt assuming 60fps
 
         particles.forEach { p ->
             p.y += p.speed * (h / 1000f) * dt
@@ -133,10 +138,10 @@ private fun FallingParticles(result: GameResult) {
             p.rotation += p.rotSpeed
 
             if (p.y < h + 40f) {
-                rotate(p.rotation, pivot = Offset(p.x * w / 1000f, p.y)) {
+                rotate(p.rotation, pivot = Offset(p.x * w / 1000f, p.y * h / 1000f)) {
                     drawRect(
                         color = p.color.copy(alpha = 0.85f),
-                        topLeft = Offset(p.x * w / 1000f - p.size / 2, p.y - p.size / 2),
+                        topLeft = Offset(p.x * w / 1000f - p.size / 2, p.y * h / 1000f - p.size / 2),
                         size = Size(p.size, p.size * 0.6f)
                     )
                 }

@@ -9,6 +9,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.badukai.next.analysis.AnalyzeResult
 import com.badukai.next.analysis.CandidateMove
+import com.badukai.next.game.GameConstants
 import com.badukai.next.game.Point
 import org.json.JSONObject
 import org.json.JSONArray
@@ -168,35 +169,6 @@ class KataGoEngine(private val context: Context) {
         }
     }
 
-    private fun copyHexagonSkeletons(hexagonDir: File) {
-        val hexagonFiles = listOf(
-            "libQnnHtpV68Skel.so",
-            "libQnnHtpV69Skel.so",
-            "libQnnHtpV73Skel.so",
-            "libQnnHtpV75Skel.so",
-            "libQnnHtpV79Skel.so",
-            "libQnnHtpV81Skel.so",
-            "libQnnDspV66Skel.so",
-            "libCalculator_skel.so"
-        )
-
-        for (fileName in hexagonFiles) {
-            try {
-                val destFile = File(hexagonDir, fileName)
-                if (!destFile.exists()) {
-                    context.assets.open("hexagon/$fileName").use { input ->
-                        FileOutputStream(destFile).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    AppLogger.i(TAG, "Copied hexagon skeleton: $fileName")
-                }
-            } catch (e: Exception) {
-                AppLogger.d(TAG, "Hexagon skeleton not available: $fileName")
-            }
-        }
-    }
-
     private fun startReaderJob() {
         readerJob = scope.launch {
             try {
@@ -347,12 +319,28 @@ class KataGoEngine(private val context: Context) {
         }
     }
 
+    /**
+     * Execute a simple GTP command returning success/failure.
+     */
+    private suspend fun executeGtpCommand(cmd: String, tag: String, timeout: Int = GameConstants.GTP_TIMEOUT_DEFAULT): Boolean = withContext(Dispatchers.IO) {
+        commandMutex.withLock {
+            try {
+                responseQueue.clear()
+                sendCommand(cmd)
+                waitForResponse(timeout).startsWith("=")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Error $tag", e)
+                false
+            }
+        }
+    }
+
     suspend fun generateMove(color: String): String? = withContext(Dispatchers.IO) {
         commandMutex.withLock {
             try {
                 responseQueue.clear()
                 sendCommand("genmove $color")
-                val response = waitForResponse(60000)
+                val response = waitForResponse(GameConstants.GTP_TIMEOUT_GENMOVE)
                 val move = parseGtpResponse(response)
                 AppLogger.i(TAG, "Generated move for $color: $move")
                 move
@@ -368,7 +356,7 @@ class KataGoEngine(private val context: Context) {
      * Verified locally: kata-analyze produces no output on this engine,
      * so lz-analyze is PRIMARY (Leela Zero info format works reliably).
      */
-    suspend fun analyzePosition(color: String = "black", maxVisits: Int = 100): AnalyzeResult? = withContext(Dispatchers.IO) {
+    suspend fun analyzePosition(color: String = "black", maxVisits: Int = GameConstants.ANALYSIS_VISITS): AnalyzeResult? = withContext(Dispatchers.IO) {
         commandMutex.withLock {
             lastAnalysisError = ""
 
@@ -394,7 +382,7 @@ class KataGoEngine(private val context: Context) {
             // Read lines until we find an info line (give up fast to not stall genmove).
             var infoLine: String? = null
             for (i in 0 until 3) {
-                val line = waitForResponse(4000)
+                val line = waitForResponse(GameConstants.LZ_ANALYZE_RETRY_TIMEOUT)
                 if (line.isBlank()) break
                 if (line.contains("info move")) {
                     infoLine = line
@@ -404,7 +392,7 @@ class KataGoEngine(private val context: Context) {
 
             inStreamMode = false
             sendCommand("protocol_version")
-            waitForResponse(1500)
+            waitForResponse(GameConstants.GTP_TIMEOUT_FLUSH)
             while (responseQueue.poll() != null) {}
 
             if (infoLine == null) {
@@ -430,16 +418,16 @@ class KataGoEngine(private val context: Context) {
         val regex = Regex("info move (\\S+) visits (\\d+) winrate (-?\\d+)")
         val matches = regex.findAll(line)
         val candidates = mutableListOf<CandidateMove>()
-        var bestWinrate = 0.0
+        var bestWinrate = 0f
 
         for (m in matches) {
             val coord = m.groupValues[1]
             val visits = m.groupValues[2].toIntOrNull() ?: 0
-            val wrRaw = m.groupValues[3].toDoubleOrNull() ?: continue
-            val winrate = wrRaw / 10000.0
+            val wrRaw = m.groupValues[3].toFloatOrNull() ?: continue
+            val winrate = wrRaw / GameConstants.WINRATE_UNIT
             val cm = CandidateMove.fromGtp(coord, 19) ?: continue
             candidates.add(cm.copy(
-                winRate = winrate.toFloat(),
+                winRate = winrate,
                 visits = visits,
                 isBest = candidates.isEmpty()
             ))
@@ -452,88 +440,23 @@ class KataGoEngine(private val context: Context) {
             return null
         }
         AppLogger.i(TAG, "lz-analyze success: wr=$bestWinrate candidates=${candidates.size}")
-        return AnalyzeResult(winrate = bestWinrate, scoreLead = 0.0, moves = candidates, ownership = null)
+        return AnalyzeResult(winrate = bestWinrate, scoreLead = 0f, moves = candidates, ownership = null)
     }
 
-    suspend fun playMove(color: String, move: String): Boolean = withContext(Dispatchers.IO) {
-        commandMutex.withLock {
-            try {
-                responseQueue.clear()
-                sendCommand("play $color $move")
-                val response = waitForResponse(5000)
-                response.startsWith("=")
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Error playing move", e)
-                false
-            }
-        }
-    }
-
-    suspend fun setBoardSize(size: Int): Boolean = withContext(Dispatchers.IO) {
-        commandMutex.withLock {
-            try {
-                responseQueue.clear()
-                sendCommand("boardsize $size")
-                val response = waitForResponse(5000)
-                response.startsWith("=")
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Error setting board size", e)
-                false
-            }
-        }
-    }
-
-    suspend fun clearBoard(): Boolean = withContext(Dispatchers.IO) {
-        commandMutex.withLock {
-            try {
-                responseQueue.clear()
-                sendCommand("clear_board")
-                val response = waitForResponse(5000)
-                response.startsWith("=")
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Error clearing board", e)
-                false
-            }
-        }
-    }
-
-    suspend fun setKomi(komi: Float): Boolean = withContext(Dispatchers.IO) {
-        commandMutex.withLock {
-            try {
-                responseQueue.clear()
-                sendCommand("komi $komi")
-                val response = waitForResponse(5000)
-                response.startsWith("=")
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Error setting komi", e)
-                false
-            }
-        }
-    }
-
-    suspend fun undo(): Boolean = withContext(Dispatchers.IO) {
-        commandMutex.withLock {
-            try {
-                responseQueue.clear()
-                sendCommand("undo")
-                val response = waitForResponse(5000)
-                response.startsWith("=")
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Error undoing move", e)
-                false
-            }
-        }
-    }
+    suspend fun playMove(color: String, move: String): Boolean = executeGtpCommand("play $color $move", "playMove")
+    suspend fun setBoardSize(size: Int): Boolean = executeGtpCommand("boardsize $size", "setBoardSize")
+    suspend fun clearBoard(): Boolean = executeGtpCommand("clear_board", "clearBoard")
+    suspend fun setKomi(komi: Float): Boolean = executeGtpCommand("komi $komi", "setKomi")
+    suspend fun undo(): Boolean = executeGtpCommand("undo", "undo")
 
     suspend fun getFinalScore(): String? = withContext(Dispatchers.IO) {
         commandMutex.withLock {
             try {
                 responseQueue.clear()
                 sendCommand("final_score")
-                val response = waitForResponse(10000)
-                parseGtpResponse(response)
+                parseGtpResponse(waitForResponse(GameConstants.GTP_TIMEOUT_SCORE))
             } catch (e: Exception) {
-                AppLogger.e(TAG, "Error getting final score", e)
+                AppLogger.e(TAG, "Error getFinalScore", e)
                 null
             }
         }
@@ -546,52 +469,6 @@ class KataGoEngine(private val context: Context) {
             trimmed.startsWith("=") -> trimmed.substring(1).trim().split("\n").firstOrNull()?.trim()
             else -> null
         }
-    }
-
-    private fun createConfigFile(file: File, logFilePath: String) {
-        val config = """
-            # KataGo Configuration for BadukNext
-
-            # Logging
-            logAllGTPCommunication = true
-            logSearchInfo = true
-            logToStderr = false
-            logFile = $logFilePath
-
-            # Backend settings - CPU only (most compatible)
-            useNNAPI = false
-
-            # Rules (Japanese-style)
-            koRule = SIMPLE
-            scoringRule = AREA
-            taxRule = NONE
-            multiStoneSuicideLegal = false
-            hasButton = false
-            whiteHandicapBonus = N
-
-            # Bot behavior
-            allowResignation = true
-            resignConsecTurns = 20
-            resignMinScoreDifference = 40
-            resignMinMovesPerBoardArea = 0.4
-
-            # Ponder disabled
-            ponderingEnabled = false
-            lagBuffer = 1.0
-
-            # Search settings
-            numSearchThreads = 2
-            nnCacheSizePowerOfTwo = 16
-            resignThreshold = -0.9
-
-            # Threading
-            nnMutexPoolSizePowerOfTwo = 14
-            numNNServerThreadsPerModel = 1
-        """.trimIndent()
-
-        file.writeText(config)
-        AppLogger.i(TAG, "Config file created: ${file.absolutePath}")
-        AppLogger.i(TAG, "Log file configured to: $logFilePath")
     }
 
     private fun shouldUpdateBinary(binaryFile: File): Boolean {

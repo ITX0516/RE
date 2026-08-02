@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
 import com.badukai.next.game.GameViewModel
+import com.badukai.next.ui.BadukNextTheme
 import com.badukai.next.ui.GameScreen
 
 class MainActivity : ComponentActivity() {
@@ -25,7 +26,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             val state by viewModel.state.collectAsState()
 
-            GameScreen(
+            BadukNextTheme(theme = state.currentTheme) {
+                GameScreen(
                 state = state,
                 onBoardTap = viewModel::onBoardTap,
                 onPass = viewModel::pass,

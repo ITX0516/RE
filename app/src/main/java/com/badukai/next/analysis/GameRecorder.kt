@@ -13,11 +13,9 @@ data class RecordedMove(
 
 class GameRecorder {
     private val moves = mutableListOf<RecordedMove>()
-    private var analysisMoves = mutableListOf<RecordedMove>()
 
     fun reset() {
         moves.clear()
-        analysisMoves.clear()
     }
 
     fun recordMove(move: Move, winRate: Float? = null, scoreLead: Float? = null) {
@@ -28,14 +26,10 @@ class GameRecorder {
 
     fun getMoveCount(): Int = moves.size
 
-    fun rebuildAnalysisMoves(): List<RecordedMove> {
-        analysisMoves = moves.toMutableList()
-        return analysisMoves.toList()
-    }
+    fun getAnalysisMoves(): List<RecordedMove> = moves.toList()
 
     fun removeLast() {
         if (moves.isNotEmpty()) moves.removeAt(moves.size - 1)
-        if (analysisMoves.isNotEmpty()) analysisMoves.removeAt(analysisMoves.size - 1)
     }
 
     fun setAnalysisWinRate(moveIndex: Int, wr: Float, lead: Float) {
