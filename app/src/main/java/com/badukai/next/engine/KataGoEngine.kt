@@ -49,6 +49,13 @@ class KataGoEngine(private val context: Context) {
             "/apex/com.android.runtime/bin/linker64",
             "/system/bin/linker_android64"
         )
+
+        /** One candidate start plan for the 4-path engine start fallback. */
+        private data class StartPlan(
+            val label: String,
+            val binary: File,
+            val useLinker64: Boolean
+        )
     }
 
     private val _isReady = MutableStateFlow(false)
@@ -158,11 +165,6 @@ class KataGoEngine(private val context: Context) {
         }
 
         // ---- Candidate start plans, ordered by preference -----------------------
-        data class StartPlan(
-            val label: String,
-            val binary: File?,
-            val useLinker64: Boolean
-        )
         val plans = mutableListOf<StartPlan>()
         if (linker64 != null && jniLibsBinary != null) {
             plans += StartPlan("Path A1 (jniLibs + linker64)", jniLibsBinary, true)
@@ -187,7 +189,7 @@ class KataGoEngine(private val context: Context) {
         for ((idx, plan) in plans.withIndex()) {
             val attempt = idx + 1
             AppLogger.i(TAG, "--- Plan $attempt/${plans.size}: ${plan.label} ---")
-            val binary = plan.binary!!
+            val binary = plan.binary
             if (plan.label.contains("PIE")) {
                 try {
                     binary.setExecutable(true, false)
@@ -277,8 +279,8 @@ class KataGoEngine(private val context: Context) {
         AppLogger.i(TAG, "Process alive=$alive, exitCode=$exitCode")
 
         if (!alive) {
-            val errTail = try { er.readText().trim() } catch (_: Exception) ""
-            val outTail = try { r.readText().take(2000) } catch (_: Exception) ""
+            val errTail = try { er.readText().trim() } catch (_: Exception) { "" }
+            val outTail = try { r.readText().take(2000) } catch (_: Exception) { "" }
             AppLogger.e(TAG, "Process died immediately! exit=$exitCode")
             if (errTail.isNotBlank()) AppLogger.e(TAG, "Stderr full:\n$errTail")
             if (outTail.isNotBlank()) AppLogger.e(TAG, "Stdout head:\n$outTail")
