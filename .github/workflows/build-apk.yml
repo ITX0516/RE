@@ -43,14 +43,25 @@ jobs:
           du -sh app/src/main/assets/*/ 2>/dev/null || echo "no subdirs"
           du -sh app/src/main/jniLibs/ 2>/dev/null || echo "no jniLibs"
 
-          # KEEP bundled 6b model (4.97MB .txt.gz) — user wants it shipped inside
-          # the APK so first launch works offline; only delete the directory
-          # IF setup-from-badukai.sh ever accidentally copies >1 file that we
-          # didn't plan on shipping (i.e. anything other than the 6b 4.97MB
-          # weight).
+          # KEEP bundled 6b model ONLY — user explicitly said ship the 6b weight
+          # inside APK so first launch works offline.
+          # Upstream badukai ships BOTH (6b txt.gz 4.97MB + 10b bin 12MB).
+          # 10b is 100% dead weight (never referenced from Kotlin code, never
+          # selectable in the UI, never defaulted). Prune it.
           DST_MODELS="app/src/main/assets/models"
+          KEEP_GZ="kata1-b6c96-s175395328-d26788732.txt.gz"
+          KEEP_TXT="kata1-b6c96-s175395328-d26788732.txt"
           if [ -d "$DST_MODELS" ]; then
-              echo "assets/models kept for offline 1st-run; bundled files:"
+              ( cd "$DST_MODELS" && find . -maxdepth 1 -type f -print0 | while IFS= read -r -d '' f; do
+                  name="${f#./}"
+                  if [ "$name" = "$KEEP_GZ" ] || [ "$name" = "$KEEP_TXT" ]; then
+                      echo "  KEEP $name"
+                  else
+                      echo "  REMOVE $name (only 6b is shipped — user explicitly asked for 6b bundled APK)"
+                      rm -fv "$name"
+                  fi
+              done )
+              echo "Final assets/models after P4 prune:"
               ( find "$DST_MODELS" -maxdepth 1 -type f -printf '  %12s %f\n' 2>/dev/null || true ) | sort
           fi
           echo "=== asset sizes confirmed ==="

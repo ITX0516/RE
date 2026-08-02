@@ -220,15 +220,50 @@ echo "  (no-op: keeping jniLibs/libkatago.so in place)"
 stage P3 "REVERTED: KEEP 5 jniLibs deps in jniLibs (no assets/deps move)"
 echo "  (no-op: keeping jniLibs/arm64-v8a/*.so in place)"
 
+
+# ================================================================
+# Stage P4 — ONLY SHIP 6b inside assets/models (user explicitly
+#            asked for "6b bundled inside APK"). Upstream badukai
+#            ships two models: 6b txt.gz (4.97MB) + 10b bin
+#            (12MB). 10b is never referenced by Kotlin code, never
+#            selected by the UI, and was inflating the APK by 12MB
+#            of dead weight. Remove everything in assets/models
+#            that isn't our 6b baseline (either .txt.gz OR .txt —
+#            aapt2 sometimes decompresses gz entries during
+#            packaging so both forms can exist).
+# ================================================================
+stage P4 "PRUNE assets/models to ONLY 6b (user-requested bundled weight; 10b is dead weight)"
+MODELS_DIR="$DST_APP/assets/models"
+if [ -d "$MODELS_DIR" ]; then
+    # Acceptable names for the shipped 6b net (gz form + plaintext form).
+    keep_gz="kata1-b6c96-s175395328-d26788732.txt.gz"
+    keep_txt="kata1-b6c96-s175395328-d26788732.txt"
+    kept=0
+    removed=0
+    ( cd "$MODELS_DIR" && find . -maxdepth 1 -type f -print0 | while IFS= read -r -d '' f; do
+        name="${f#./}"
+        if [ "$name" = "$keep_gz" ] || [ "$name" = "$keep_txt" ]; then
+            sz=$(stat -c '%s' "$name" 2>/dev/null || echo 0)
+            echo "  KEEP $name ($sz bytes)"
+            kept=$((kept+1))
+        else
+            sz=$(stat -c '%s' "$name" 2>/dev/null || echo 0)
+            rm -fv "$name"
+            echo "  REMOVE $name ($sz bytes — not 6b shipped baseline)"
+            removed=$((removed+1))
+        fi
+    done ; echo "  Summary P4: assets/models kept=$kept removed=$removed" )
+fi
+
 echo ""
-echo "==> Summary (after shrink pipeline — P0/P1 only, P2/P3 reverted for AI launch reliability)"
+echo "==> Summary (after shrink pipeline — P0/P1/P4 only, P2/P3 reverted for AI launch reliability)"
 echo "assets/libkatago.so:   $(ls -lh "$DST_APP/assets/libkatago.so"    2>/dev/null | awk '{print $5}' || echo MISSING)"
 echo "assets/gtp_static.cfg: $(ls -lh "$DST_APP/assets/gtp_static.cfg" 2>/dev/null | awk '{print $5}' || echo MISSING)"
 # NOTE: `find … | wc -l | tr -d ' '` wrapped with `{ find … || true; }` because
 # `set -euo pipefail` turns a non-zero exit from *any* pipeline member into a
 # script-wide fatal error. Keeping the guard is still useful (belt & suspenders)
 # even though P3 no longer removes jniLibs.
-echo "assets/models:         $( { find "$DST_APP/assets/models" -maxdepth 1 -type f 2>/dev/null || true; } | wc -l | tr -d ' ') files"
+echo "assets/models (P4=only 6b allowed): $( { find "$DST_APP/assets/models" -maxdepth 1 -type f -printf '  %12s %f\n' 2>/dev/null || true; } | sort)"
 # assets/deps is intentionally UNUSED (empty / missing) after P3 revert.
 deps_count=$( { find "$DST_APP/assets/deps" -maxdepth 1 -name "*.so" -type f 2>/dev/null || true; } | wc -l | tr -d ' ' )
 echo "assets/deps/ (UNUSED after P3 revert): $deps_count .so files"

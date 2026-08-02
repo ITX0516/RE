@@ -63,12 +63,21 @@ android {
     }
 
     aaptOptions {
-        // tflite/model/gz/so entries were "safety" listing from upstream but:
-        //   - so is handled by packaging.jniLibs above (NOT assets)
-        //   - model & gz are downloaded at runtime (not bundled)
-        //   - tflite: we don't bundle any .tflite either
-        // Leave only "bin" (pre-compressed / no gain from re-compressing).
-        noCompress += listOf("bin")
+        // 2026-08-02 SHIPPED-WEIGHTS RULES:
+        //   - 6b weights (kata1-...txt.gz, 4.97MB) must NOT be re-decompressed by
+        //     aapt2 during packaging. If .gz is missing from noCompress, aapt2
+        //     silently inflates assets/models/<x>.txt.gz -> <x>.txt (12.4 MB!)
+        //     inside the APK. That's a double size penalty AND ModelManager's
+        //     strict gzip-magic validation would reject the resulting .txt copy
+        //     on launch (before we added plaintext-format support). We still
+        //     accept both forms in code, but keeping it STORED as .gz is the
+        //     user's requested size behaviour.
+        //   - ".bin" stays (10b.bin / other pre-compressed binary weights a
+        //     user might import later — they gain nothing from deflate).
+        //   - .tflite / .so are already handled elsewhere:
+        //       • .so → packaging.jniLibs (useLegacyPackaging=true = stored)
+        //       • we don't ship .tflite models today.
+        noCompress += listOf("bin", "gz")
     }
 }
 
