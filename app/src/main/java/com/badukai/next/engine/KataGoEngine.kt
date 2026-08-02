@@ -65,6 +65,16 @@ class KataGoEngine(private val context: Context) {
             val binary: File,
             val useLinker64: Boolean
         )
+
+        /** Outcome of a single runOnce attempt (alive after 2s, or dead with diags). */
+        private sealed class RunOnceOutcome {
+            data class Alive(val result: RunOnceResult) : RunOnceOutcome()
+            data class Dead(
+                val exitCode: Int?,
+                val stderrTail40: List<String>,
+                val stdoutTail20: List<String>
+            ) : RunOnceOutcome()
+        }
     }
 
     private val _isReady = MutableStateFlow(false)
@@ -72,6 +82,19 @@ class KataGoEngine(private val context: Context) {
 
     private val _lastResponse = MutableStateFlow("")
     val lastResponse: StateFlow<String> = _lastResponse
+
+    // 2026-08-02 DIAGNOSTIC-TO-TOAST: populated in full detail during every
+    // start() attempt. GameViewModel.startEngine will concatenate the ENTIRE
+    // string into the user-visible gameMessage if start() returns false, so a
+    // single screenshot from the user reveals:
+    //   - model/config on-disk file bytes + header hex (no aapt2 guesswork)
+    //   - jniLibs / filesDir .so inventory (sizes + canExecute)
+    //   - LD_LIBRARY_PATH + linker64 pick
+    //   - per-Plan cmd, exitValue, stderr-first-40, stdout-first-20
+    // Cost: ~2000-8000 chars on the fail path; perfectly fine for a single
+    // Compose Text element and eliminates 10+ rounds of "guessing the fail".
+    @Volatile
+    var lastStartDiagnostic: String = ""
 
     private var currentModel: String = ""
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -115,6 +138,11 @@ class KataGoEngine(private val context: Context) {
             return@withContext true
         }
 
+        val diag = StringBuilder(4096)
+        fun diagLine(s: String) { diag.append(s).append('\n') }
+        diagLine("=== AI START DIAGNOSTIC ===")
+        diagLine("source=$source   customPathSet=${!customStoredPath.isNullOrBlank()}")
+
         AppLogger.i(TAG, "=== KATAGO ENGINE START (source=$source customPathSet=${!customStoredPath.isNullOrBlank()}) ===")
 
         // ---- Directories + config ------------------------------------------------
@@ -123,6 +151,8 @@ class KataGoEngine(private val context: Context) {
             context.applicationInfo.nativeLibraryDir?.let { File(it) }?.takeIf { it.exists() && it.isDirectory }
         } catch (_: Exception) { null }
         AppLogger.i(TAG, "nativeLibraryDir: ${nativeLibraryDir?.absolutePath ?: "NULL"} (exists=${nativeLibraryDir?.exists()})")
+        diagLine("filesDir=${filesDir.absolutePath}  r=${filesDir.canRead()} w=${filesDir.canWrite()}")
+        diagLine("nativeLibraryDir=${nativeLibraryDir?.absolutePath ?: "NULL"}  exists=${nativeLibraryDir?.exists()}")
 
         val hexagonDir = File(filesDir, "hexagon")
         if (!hexagonDir.exists()) {
@@ -151,6 +181,8 @@ class KataGoEngine(private val context: Context) {
                 val prepared = ModelManager.ensureBundledCopied(context)
                 if (prepared.isFailure) {
                     AppLogger.e(TAG, "BUNDLED_ASSET ensureBundledCopied failed: ${prepared.exceptionOrNull()?.message}")
+                    diagLine("ensureBundledCopied FAILED: ${prepared.exceptionOrNull()?.message}")
+                    lastStartDiagnostic = diag.toString()
                     return@withContext false
                 }
                 val actual = File(prepared.getOrThrow())
@@ -166,11 +198,15 @@ class KataGoEngine(private val context: Context) {
                     val retry = ModelManager.ensureBundledCopied(context)
                     if (retry.isFailure) {
                         AppLogger.e(TAG, "BUNDLED_ASSET validation FAILED after re-copy — APK missing assets/models entry?")
+                        diagLine("BUNDLED_ASSET retry ensureBundledCopied FAILED: ${retry.exceptionOrNull()?.message}")
+                        lastStartDiagnostic = diag.toString()
                         return@withContext false
                     }
                     val again = File(retry.getOrThrow())
                     if (!again.exists() || !ModelManager.isValidModelFile(again)) {
                         AppLogger.e(TAG, "BUNDLED_ASSET still INVALID after retry copy: path=${again.absolutePath} size=${again.length()}")
+                        diagLine("BUNDLED_ASSET retry after validateOrDelete still INVALID: path=${again.absolutePath} size=${again.length()} valid=${ModelManager.isValidModelFile(again)}")
+                        lastStartDiagnostic = diag.toString()
                         return@withContext false
                     }
                     again
@@ -191,6 +227,8 @@ class KataGoEngine(private val context: Context) {
                     val d = ModelManager.downloadModel(context)
                     if (d.isFailure) {
                         AppLogger.e(TAG, "DOWNLOADED prepare failed: ${d.exceptionOrNull()?.message}")
+                        diagLine("DOWNLOADED download FAILED: ${d.exceptionOrNull()?.message}")
+                        lastStartDiagnostic = diag.toString()
                         return@withContext false
                     }
                 }
@@ -199,10 +237,14 @@ class KataGoEngine(private val context: Context) {
             ModelSource.CUSTOM -> {
                 if (customStoredPath.isNullOrBlank()) {
                     AppLogger.e(TAG, "CUSTOM source selected but SettingsStore.customModelPath is empty — user has never imported a file, start aborted")
+                    diagLine("CUSTOM customStoredPath blank (user has never imported)")
+                    lastStartDiagnostic = diag.toString()
                     return@withContext false
                 }
                 if (!ModelManager.validateOrDelete(context, ModelSource.CUSTOM, customStoredPath)) {
                     AppLogger.e(TAG, "CUSTOM model FAILED strict validation (corrupt/removed? storedPath=$customStoredPath) — please re-import via Settings → start aborted")
+                    diagLine("CUSTOM model validateOrDelete FAILED storedPath=$customStoredPath")
+                    lastStartDiagnostic = diag.toString()
                     return@withContext false
                 }
                 ModelManager.resolveModelFile(context, ModelSource.CUSTOM, customStoredPath)
@@ -210,17 +252,39 @@ class KataGoEngine(private val context: Context) {
             // else — exhaustive fallback; normally unreachable for 3-valued enum.
             else -> {
                 AppLogger.e(TAG, "Unknown ModelSource=$source — cannot prepare model, start aborted")
+                diagLine("Unknown ModelSource=$source (exhaustive fallback fired)")
+                lastStartDiagnostic = diag.toString()
                 return@withContext false
             }
         }
         AppLogger.i(TAG, "Model final: ${modelFile.absolutePath} (exists=${modelFile.exists()} size=${modelFile.length()})")
         AppLogger.i(TAG, "Config final: ${configFile.absolutePath} (exists=${configFile.exists()} size=${configFile.length()})")
+        // 2026-08-02 DIAGNOSTIC-TO-TOAST: write exact on-disk bytes + header hex for
+        // model & config (no "I think / probably" — exact numbers, verified every run).
+        run {
+            fun firstHex(f: File, n: Int): String = runCatching {
+                val b = ByteArray(n)
+                val r = java.io.FileInputStream(f).use { it.read(b) }
+                (0 until r).joinToString(" ") { "%02x".format(b[it]) }
+            }.getOrDefault("(read-failed)")
+            diagLine("--- model_file ---")
+            diagLine("  path   = ${modelFile.absolutePath}")
+            diagLine("  exists = ${modelFile.isFile}  readable = ${modelFile.canRead()}  size = ${modelFile.length()}")
+            diagLine("  first-8-hex = ${firstHex(modelFile, 8)}")
+            diagLine("--- config_file ---")
+            diagLine("  path   = ${configFile.absolutePath}")
+            diagLine("  exists = ${configFile.isFile}  readable = ${configFile.canRead()}  size = ${configFile.length()}")
+            diagLine("  first-8-hex = ${firstHex(configFile, 8)}")
+        }
         run {
             val problems = mutableListOf<String>()
             if (!configFile.isFile || configFile.length() < 1000L || !configFile.canRead()) problems += "configFile invalid/missing (expect 7KB+ readable gtp cfg)"
             if (!modelFile.isFile || !modelFile.canRead()) problems += "modelFile(source=$source) missing/unreadable"
+            diagLine("--- preflight ---")
+            if (problems.isEmpty()) diagLine("  OK (pass)") else diagLine("  FAIL: ${problems.joinToString(" | ")}")
             if (problems.isNotEmpty()) {
                 AppLogger.e(TAG, "PREFLIGHT FAIL — refusing to launch: ${problems.joinToString()}")
+                lastStartDiagnostic = diag.toString()
                 return@withContext false
             }
         }
@@ -299,6 +363,11 @@ class KataGoEngine(private val context: Context) {
             val ok = try { jniBinary.setExecutable(true, false) } catch (_: Exception) { false }
             AppLogger.i(TAG, "chmod +x jniLibs/$BINARY_NAME → $ok (direct exec candidate)")
         }
+        diagLine("--- binary_install ---")
+        diagLine("  jniBinary.source=${jniBinary?.absolutePath ?: "NULL"}  size=${jniBinary?.length() ?: -1}")
+        diagLine("  filesDirBinary=${filesDirBinary.absolutePath}  size=${filesDirBinary.length()}  exists=${filesDirBinary.isFile}")
+        diagLine("  assetAvailable=$assetAvailable")
+        diagLine("  jniBinary.chmod_exec_ok=${jniBinary?.canExecute() ?: false}  filesDirBinary.chmod_exec_ok=${filesDirBinary.canExecute()}")
         // ---- ---- 8< ---- end of install ----
 
         // ---- Shared env / args ---------------------------------------------------
@@ -329,14 +398,27 @@ class KataGoEngine(private val context: Context) {
         val gtpArgs = listOf("gtp", "-model", modelFile.absolutePath, "-config", configFile.absolutePath)
         val linker64 = LINKER64_CANDIDATES.firstOrNull { File(it).exists() }
         AppLogger.i(TAG, "Detected linker64: ${linker64 ?: "NONE — linker64 plans skipped"}")
+        diagLine("--- launch_env ---")
+        diagLine("  linker64 = ${linker64 ?: "NONE"}")
+        diagLine("  LD_LIBRARY_PATH = ${envBase["LD_LIBRARY_PATH"]}")
+        diagLine("  ADSP_LIBRARY_PATH = ${envBase["ADSP_LIBRARY_PATH"]}")
+        diagLine("  gtpArgs  = ${gtpArgs.joinToString("  ")}")
         AppLogger.i(TAG, "nativeLibraryDir so inventory (PRIMARY dep-search set):")
+        diagLine("--- jniLibs/ inventory (nativeLibraryDir) ---")
         nativeLibraryDir?.listFiles()?.filter { it.name.endsWith(".so") }
             ?.sortedByDescending { it.length() }
-            ?.forEach { f -> AppLogger.i(TAG, "  ${f.name}  ${f.length()} bytes  exec=${f.canExecute()}") }
+            ?.forEach { f ->
+                AppLogger.i(TAG, "  ${f.name}  ${f.length()} bytes  exec=${f.canExecute()}")
+                diagLine("  ${f.name}  size=${f.length()}  exec=${f.canExecute()}")
+            } ?: diagLine("  (nativeLibraryDir is NULL or empty)")
         AppLogger.i(TAG, "filesDir so inventory (exec-candidate set):")
+        diagLine("--- filesDir/ .so inventory ---")
         filesDir.listFiles()?.filter { it.name.endsWith(".so") }
             ?.sortedByDescending { it.length() }
-            ?.forEach { f -> AppLogger.i(TAG, "  ${f.name}  ${f.length()} bytes  exec=${f.canExecute()}") }
+            ?.forEach { f ->
+                AppLogger.i(TAG, "  ${f.name}  ${f.length()} bytes  exec=${f.canExecute()}")
+                diagLine("  ${f.name}  size=${f.length()}  exec=${f.canExecute()}")
+            } ?: diagLine("  (none)")
 
         // ---- Build launch plan list ----------------------------------------------
         // Try jniLibs direct locations FIRST, then filesDir copies, with & without
@@ -368,30 +450,57 @@ class KataGoEngine(private val context: Context) {
                 addAll(gtpArgs)
             }
             AppLogger.i(TAG, "Command: ${cmd.joinToString(" ")}")
+            diagLine("--- Plan $attempt/${plans.size}: ${plan.label} ---")
+            diagLine("  cmd = ${cmd.joinToString(" ")}")
 
-            val result = try {
+            val outcome = try {
                 runOnce(cmd, envBase, hexagonDir)
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Plan $attempt/${plans.size} exception: ${e::class.java.simpleName} ${e.message}")
                 lastFailureReason = "${plan.label} exception: ${e.message}"
-                null
+                diagLine("  exception = ${e::class.java.simpleName}: ${e.message}")
+                RunOnceOutcome.Dead(null, listOf("exception: ${e::class.java.simpleName}: ${e.message}"), emptyList())
             }
 
-            if (result != null) {
-                process = result.process
-                writer = result.writer
-                reader = result.reader
-                errorReader = result.errorReader
-                isRunning.set(true)
-                currentModel = "$source:${modelFile.name}"
-                _isReady.value = true
-                startReaderJob()
-                startErrorReaderJob()
-                AppLogger.i(TAG, "=== ENGINE STARTED SUCCESSFULLY via ${plan.label} ===")
-                return@withContext true
-            } else {
-                lastFailureReason = "${plan.label} died within 2s or never launched — see full stderr above in logcat"
-                AppLogger.e(TAG, "Plan $attempt/${plans.size} FAILED: ${plan.label}")
+            when (outcome) {
+                is RunOnceOutcome.Alive -> {
+                    val result = outcome.result
+                    process = result.process
+                    writer = result.writer
+                    reader = result.reader
+                    errorReader = result.errorReader
+                    isRunning.set(true)
+                    currentModel = "$source:${modelFile.name}"
+                    _isReady.value = true
+                    startReaderJob()
+                    startErrorReaderJob()
+                    AppLogger.i(TAG, "=== ENGINE STARTED SUCCESSFULLY via ${plan.label} ===")
+                    diagLine("  plan_status = OK (engine alive after 2s)")
+                    lastStartDiagnostic = diag.appendLine("=== OUTCOME: SUCCESS via ${plan.label} ===").toString()
+                    return@withContext true
+                }
+                is RunOnceOutcome.Dead -> {
+                    lastFailureReason = "${plan.label} died: exit=${outcome.exitCode}; stderr-head=${outcome.stderrTail40.firstOrNull() ?: "(empty)"}"
+                    AppLogger.e(TAG, "Plan $attempt/${plans.size} FAILED: ${plan.label}")
+                    diagLine("  plan_status = DIED within 2s")
+                    diagLine("  exit = ${outcome.exitCode}")
+                    if (outcome.stderrTail40.isNotEmpty()) {
+                        diagLine("  stderr-tail (last ${outcome.stderrTail40.size} lines):")
+                        outcome.stderrTail40.forEachIndexed { i, ln ->
+                            val lineNo = (i + 1).toString().padStart(2, '0')
+                            diagLine("    [$lineNo] $ln")
+                        }
+                    } else {
+                        diagLine("  stderr = (empty)")
+                    }
+                    if (outcome.stdoutTail20.isNotEmpty()) {
+                        diagLine("  stdout-tail (last ${outcome.stdoutTail20.size} lines):")
+                        outcome.stdoutTail20.forEachIndexed { i, ln ->
+                            val lineNo = (i + 1).toString().padStart(2, '0')
+                            diagLine("    [$lineNo] $ln")
+                        }
+                    }
+                }
             }
         }
 
@@ -403,18 +512,23 @@ class KataGoEngine(private val context: Context) {
         AppLogger.e(TAG, "  • adb shell run-as com.badukai.next ls -l files/libkatago.so  ← size equals APK entry?")
         AppLogger.e(TAG, "  • adb shell ls -l /system/bin/linker64  ← exists? (if not only B2 runs)")
         AppLogger.e(TAG, "  • Common fails: 'Permission denied' (noexec on files/) → will need Plan adjustment")
+        diagLine("=== OUTCOME: ALL ${plans.size} PLANS FAILED ===")
+        lastFailureReason?.let { diagLine("final_reason = $it") }
+        lastStartDiagnostic = diag.toString()
         false
     }
 
     /**
-     * Try-launch once. Returns [RunOnceResult] on success (alive after 2s),
-     * or null on immediate death with detailed stderr logged to AppLogger.
+     * Try-launch once. Returns [RunOnceOutcome.Alive] with process pipes when
+     * alive after 2s, or [RunOnceOutcome.Dead] with exit+stderr+stdout tail
+     * when it died within the grace window (diagnostic toast readable by user
+     * without needing adb logcat).
      */
     private fun runOnce(
         cmd: List<String>,
         envBase: Map<String, String>,
         workingDir: File
-    ): RunOnceResult? {
+    ): RunOnceOutcome {
         val builder = ProcessBuilder(cmd)
         builder.directory(workingDir)
         builder.environment().putAll(envBase)
@@ -431,6 +545,11 @@ class KataGoEngine(private val context: Context) {
         // Drain immediate startup stderr (first 200ms) so dlopen/linker surface early
         val startupErr = StringBuilder()
         val startNs = System.nanoTime()
+        // Store last-40 stderr lines + last-20 stdout lines for diagnostic toast.
+        // These buffers are only consumed on the DIED path; if alive we don't read
+        // because the reader/errorReader coroutine jobs will own them.
+        val diagStderrBuf = mutableListOf<String>()
+        val diagStdoutBuf = mutableListOf<String>()
         while (System.nanoTime() - startNs < 200_000_000L) {
             if (!er.ready()) break
             val line = er.readLine() ?: break
@@ -446,8 +565,30 @@ class KataGoEngine(private val context: Context) {
         AppLogger.i(TAG, "Process alive=$alive, exitCode=$exitCode")
 
         if (!alive) {
-            val errTail = try { er.readText().trim() } catch (_: Exception) { "" }
-            val outTail = try { r.readText().take(2000) } catch (_: Exception) { "" }
+            // Process died within 2s → fully drain stderr/stdout into diagnostic
+            // buffers first, then log + feed to lastStartDiag upstream.
+            val errLines = mutableListOf<String>()
+            val outLines = mutableListOf<String>()
+            val errTailSb = StringBuilder()
+            runCatching {
+                repeat(80) {
+                    val ln = er.readLine() ?: return@repeat
+                    errLines += ln
+                    errTailSb.append(ln).append('\n')
+                    if (errLines.size > 80) errLines.removeAt(0)
+                }
+            }
+            runCatching {
+                repeat(40) {
+                    val ln = r.readLine() ?: return@repeat
+                    outLines += ln
+                    if (outLines.size > 40) outLines.removeAt(0)
+                }
+            }
+            val errTail = errTailSb.toString().trim()
+            val outTail = outLines.joinToString("\n").take(2000)
+            diagStderrBuf.clear(); diagStderrBuf.addAll(errLines.takeLast(40))
+            diagStdoutBuf.clear(); diagStdoutBuf.addAll(outLines.takeLast(20))
             AppLogger.e(TAG, "Process died immediately! exit=$exitCode")
             if (errTail.isNotBlank()) AppLogger.e(TAG, "Stderr full:\n$errTail")
             if (outTail.isNotBlank()) AppLogger.e(TAG, "Stdout head:\n$outTail")
@@ -455,10 +596,10 @@ class KataGoEngine(private val context: Context) {
             try { r.close() } catch (_: Exception) {}
             try { er.close() } catch (_: Exception) {}
             try { p.destroyForcibly() } catch (_: Exception) {}
-            return null
+            return RunOnceOutcome.Dead(exitCode, errLines.takeLast(40), outLines.takeLast(20))
         }
 
-        return RunOnceResult(p, w, r, er)
+        return RunOnceOutcome.Alive(RunOnceResult(p, w, r, er))
     }
 
     private data class RunOnceResult(

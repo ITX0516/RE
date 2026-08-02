@@ -177,10 +177,15 @@ class GameViewModel : ViewModel() {
                         requestAiMove()
                     }
                 } else {
+                    val baseMsg = "Failed to start AI (source=$source). Check logcat ModelManager/KataGoEngine for details."
+                    val appended = runCatching { engine.lastStartDiagnostic }
+                        .getOrDefault("")
+                        .ifBlank { null }
+                    val full = if (appended == null) baseMsg else (baseMsg + "\n\n---- DIAGNOSTIC ----\n$appended")
                     _state.value = _state.value.copy(
                         isEngineReady = false,
                         isEngineStarting = false,
-                        gameMessage = "Failed to start AI (source=$source). Check logcat ModelManager/KataGoEngine for details."
+                        gameMessage = full
                     )
                 }
             } catch (e: Exception) {
