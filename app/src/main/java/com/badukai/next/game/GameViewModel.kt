@@ -100,6 +100,7 @@ class GameViewModel : ViewModel() {
     private var engine: KataGoEngine? = null
     private var soundPlayer: StoneSoundPlayer? = null
     private var appContext: Context? = null
+    private var gameGeneration = 0
     lateinit var settingsStore: SettingsStore
     val recorder = GameRecorder()
 
@@ -307,14 +308,16 @@ class GameViewModel : ViewModel() {
         }
     }
 
-    private fun requestAnalysis() {
+    private fun requestAnalysis(recordToHistory: Boolean = true) {
         val color = _state.value.currentPlayer.toGtp()
+        val gen = gameGeneration
         viewModelScope.launch {
             val result = engine?.analyzePosition(color, 100) // lower visits for speed
             if (result == null) {
                 _state.value = _state.value.copy(analysisError = engine?.lastAnalysisError ?: "analysis failed")
                 return@launch
             }
+            if (gen != gameGeneration) return@launch  // stale game — discard
             val s = _state.value
             val candidates = result.moves.take(10).map { cm ->
                 val coord = if (cm.x >= 0 && cm.y >= 0) {
@@ -332,15 +335,18 @@ class GameViewModel : ViewModel() {
             // Convert winrate to Black's perspective for consistent history
             val blackWinrate = if (s.currentPlayer == StoneColor.WHITE)
                 1f - result.winrate.toFloat() else result.winrate.toFloat()
-            val newHistory = s.winrateHistory + blackWinrate
-            val newScoreHistory = s.scoreLeadHistory + result.scoreLead.toFloat()
+            val newHistory = if (recordToHistory) s.winrateHistory + blackWinrate else s.winrateHistory
+            val newScoreHistory = if (recordToHistory) s.scoreLeadHistory + result.scoreLead.toFloat() else s.scoreLeadHistory
 
+            // If territory overlay is active, keep the heuristic annotation fresh
+            val freshOwnership = if (s.showTerritoryOverlay)
+                computeHeuristicOwnership(s.board) else (result.ownership?.map { it.toFloat() })
             _state.value = s.copy(
                 // state.winrate = White's winrate (winrate bar expects White perspective)
                 winrate = if (s.currentPlayer == StoneColor.WHITE)
                     result.winrate.toFloat() else 1f - result.winrate.toFloat(),
                 scoreLead = result.scoreLead.toFloat(),
-                ownership = result.ownership?.map { it.toFloat() },
+                ownership = freshOwnership,
                 candidateInfo = candidates,
                 topCandidatePoints = topPts,
                 topCandidateWinrates = topWrs,
@@ -393,6 +399,7 @@ class GameViewModel : ViewModel() {
         val s = _state.value
         val e = engine ?: return
         if (!s.isEngineReady) return
+        val gen = gameGeneration
 
         _state.value = s.copy(isThinking = true, gameMessage = "AI thinking...")
 
@@ -400,6 +407,7 @@ class GameViewModel : ViewModel() {
             try {
                 val aiColor = s.currentPlayer
                 val move = e.generateMove(aiColor.toGtp())
+                if (gen != gameGeneration) return@launch  // stale game
                 withContext(Dispatchers.Main) { handleAiMove(move, aiColor) }
             } catch (ex: kotlinx.coroutines.CancellationException) {
                 // Coroutine cancelled (e.g. new game started) — not a real error
@@ -508,8 +516,10 @@ class GameViewModel : ViewModel() {
     }
 
     private fun handleGameEnd() {
+        val gen = gameGeneration
         viewModelScope.launch {
             val score = engine?.getFinalScore()
+            if (gen != gameGeneration) return@launch  // stale game
             val result = resolveGameResult(score)
             _state.value = _state.value.copy(
                 gameMessage = score?.let { "Game over. $it" } ?: "Game over",
@@ -579,8 +589,8 @@ class GameViewModel : ViewModel() {
                 ownership = ownership,
                 territoryResult = scoreLine
             )
-            // Refresh winrate in background
-            requestAnalysis()
+            // Refresh winrate in background, but do NOT add a data point to the chart
+            requestAnalysis(recordToHistory = false)
         } else {
             _state.value = s.copy(showTerritoryOverlay = false, showTerritoryDialog = false)
         }
@@ -736,7 +746,8 @@ class GameViewModel : ViewModel() {
     }
     private fun applyAiMoveTime(seconds: Int) {
         viewModelScope.launch {
-            engine?.sendCommand("time_settings $seconds 0 0")
+            // kata-set-option maxTime actually caps per-move search time (seconds)
+            engine?.sendCommand("kata-set-option maxTime $seconds")
         }
     }
 
@@ -801,13 +812,20 @@ class GameViewModel : ViewModel() {
         }
     }
 
-    fun startNewGame(playerColor: StoneColor, boardSize: Int, handicap: Int, komi: Float) {
+    fun startNewGame(playerColor: StoneColor, boardSize: Int, handicap: Int, komi: Float, aiTime: Int = 20, aiCanResign: Boolean = true) {
+        gameGeneration++
+        _state.value = _state.value.copy(aiMoveTimeSeconds = aiTime, aiCanResign = aiCanResign)
         val s = _state.value
         freeStoneColor = StoneColor.BLACK
         _state.value = _state.value.copy(
             winrateHistory = emptyList(), scoreLeadHistory = emptyList(),
             gameResult = null, showEyeOverlay = false,
-            playedMovePoints = emptyList(), moveQualities = emptyList()
+            playedMovePoints = emptyList(), moveQualities = emptyList(),
+            analysisMoves = emptyList(), analysisMoveIndex = 0,
+            winrate = 0f, scoreLead = 0f, ownership = null,
+            candidateInfo = emptyList(), topCandidatePoints = emptyList(),
+            topCandidateWinrates = emptyList(), showTerritoryOverlay = false,
+            showTerritoryDialog = false, territoryResult = ""
         )
         recorder.reset()
 
@@ -838,6 +856,8 @@ class GameViewModel : ViewModel() {
             engine?.setBoardSize(boardSize)
             engine?.clearBoard()
             engine?.setKomi(komi)
+            engine?.sendCommand("kata-set-option maxTime $aiTime")
+            engine?.sendCommand("kata-set-option allowResignation ${if (aiCanResign) "true" else "false"}")
 
             if (realHandicap > 0) {
                 // Place handicap stones via GTP

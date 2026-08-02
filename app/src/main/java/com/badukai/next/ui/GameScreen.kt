@@ -54,7 +54,7 @@ fun GameScreen(
     onForceEndGame: () -> Unit,
     onUndo: () -> Unit,
     onNewGame: () -> Unit,
-    onStartNewGame: (StoneColor, Int, Int, Float) -> Unit,
+    onStartNewGame: (StoneColor, Int, Int, Float, Int, Boolean) -> Unit,
     //                      color   size  handicap komi
     onDismissNewGame: () -> Unit,
     onShowModelSelector: () -> Unit,
@@ -266,7 +266,12 @@ fun GameScreen(
 
     // ── Dialogs ──
     if (state.showNewGameDialog) {
-        NewGameDialog(onDismiss = onDismissNewGame, onStartGame = onStartNewGame)
+        NewGameDialog(
+            onDismiss = onDismissNewGame,
+            onStartGame = onStartNewGame,
+            initialAiTime = state.aiMoveTimeSeconds,
+            initialAiCanResign = state.aiCanResign
+        )
     }
     if (state.showModelSelector) {
         ModelSelectorDialog(
@@ -328,7 +333,7 @@ private fun PlayButtonRow(
         IconBtn("\u21BA", "Undo", onClick = onUndo, enabled = state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() >= 2)
         IconBtn("\u23ED", "Pass", onClick = onPass, enabled = state.isPlayerTurn && !state.isThinking && state.isEngineReady)
         IconBtn("\u2691", "Resign", onClick = onResign, enabled = state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() > 0)
-        IconBtn("\u25CE", "Score", onClick = onTerritoryEstimate, enabled = true)
+        IconBtn("\u25CE", "形势", onClick = onTerritoryEstimate, enabled = true)
     }
 }
 
@@ -401,7 +406,10 @@ private fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> U
     ) {
         when (selectedTab) {
             AnalysisTab.MOVE_TREE -> MoveTreeContent(state, onJumpToMove)
-            AnalysisTab.CHART -> WinrateChartContent(state.winrateHistory, state.scoreLeadHistory, state.analysisMoveIndex)
+            AnalysisTab.CHART -> WinrateChartContent(
+                state.winrateHistory, state.scoreLeadHistory,
+                state.analysisMoveIndex, state.analysisMoves.size
+            )
             AnalysisTab.CANDIDATES -> CandidatesPlaceholder(state.candidateInfo)
         }
     }
@@ -445,7 +453,7 @@ private fun ChartPlaceholder() {
 }
 
 @Composable
-private fun WinrateChartContent(winrateHistory: List<Float>, scoreLeadHistory: List<Float>, moveIndex: Int = 0) {
+private fun WinrateChartContent(winrateHistory: List<Float>, scoreLeadHistory: List<Float>, moveIndex: Int = 0, totalMovesInGame: Int = 0) {
     val colors = BadukNextColors
     var chartType by remember { mutableStateOf("wr") }
 
@@ -475,7 +483,8 @@ private fun WinrateChartContent(winrateHistory: List<Float>, scoreLeadHistory: L
             textSize = 12f
             isAntiAlias = true
         }
-        val totalMoves = if (chartType == "wr") winrateHistory.size else scoreLeadHistory.size
+        // X scale is the full game length so the red line aligns with move numbers
+        val totalMoves = if (totalMovesInGame > 0) totalMovesInGame else if (chartType == "wr") winrateHistory.size else scoreLeadHistory.size
         // Y-axis winrate % labels (0, 25, 50, 75, 100)
         for (i in 0..4) {
             val pct = (i * 25).toString()
@@ -529,12 +538,13 @@ private fun WinrateChartContent(winrateHistory: List<Float>, scoreLeadHistory: L
                 val minVal = data.min().coerceAtMost(if (chartType == "wr") 0f else -20f)
                 val maxVal = data.max().coerceAtLeast(if (chartType == "wr") 1f else 20f)
                 val range = (maxVal - minVal).coerceAtLeast(0.01f)
-                val stepX = cw / (data.size - 1).coerceAtLeast(1)
+                // Map data point i to x based on the FULL game length so it aligns with move numbers
+                val xStep = cw / (totalMoves - 1).coerceAtLeast(1)
                 val lineColor = if (chartType == "wr") colors.Accent else colors.Danger
                 for (i in 0 until data.size - 1) {
-                    val x1 = pad + i * stepX
+                    val x1 = pad + i * xStep
                     val y1 = pad + ch * (1f - (data[i] - minVal) / range)
-                    val x2 = pad + (i + 1) * stepX
+                    val x2 = pad + (i + 1) * xStep
                     val y2 = pad + ch * (1f - (data[i + 1] - minVal) / range)
                     drawLine(lineColor, start = Offset(x1, y1), end = Offset(x2, y2), strokeWidth = 2f)
                     drawCircle(lineColor, radius = 2f, center = Offset(x1, y1))
@@ -634,13 +644,17 @@ private fun CaptureChip(
 @Composable
 private fun NewGameDialog(
     onDismiss: () -> Unit,
-    onStartGame: (StoneColor, Int, Int, Float) -> Unit
+    onStartGame: (StoneColor, Int, Int, Float, Int, Boolean) -> Unit,
+    initialAiTime: Int = 20,
+    initialAiCanResign: Boolean = true
 ) {
     val colors = BadukNextColors
     var selectedColor by remember { mutableStateOf(StoneColor.BLACK) }
     var selectedSize by remember { mutableIntStateOf(19) }
     var selectedHandicap by remember { mutableIntStateOf(0) }
     var komiText by remember { mutableStateOf("7.5") }
+    var aiTime by remember { mutableIntStateOf(initialAiTime) }
+    var aiCanResign by remember { mutableStateOf(initialAiCanResign) }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(16.dp), color = colors.Surface, shadowElevation = 6.dp) {
@@ -714,7 +728,39 @@ private fun NewGameDialog(
                     }
                 }
 
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(14.dp))
+
+                // AI move time (seconds)
+                Text("AI move time: ${aiTime}s", color = colors.TextSecondary, fontSize = 12.sp)
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                    Box(Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).clickable { aiTime = (aiTime - 5).coerceAtLeast(1) }.padding(horizontal = 10.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                        Text("\u2212", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Text("$aiTime", Modifier.width(40.dp), textAlign = TextAlign.Center, color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Box(Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).clickable { aiTime = (aiTime + 5).coerceAtMost(120) }.padding(horizontal = 10.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                        Text("+", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                // AI can resign
+                Row(
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { aiCanResign = !aiCanResign }.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("AI can resign", color = colors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Allow AI to resign when losing badly", color = colors.TextSecondary, fontSize = 11.sp)
+                    }
+                    Switch(
+                        checked = aiCanResign, onCheckedChange = { aiCanResign = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = colors.TextOnAccent, checkedTrackColor = colors.Accent, uncheckedThumbColor = colors.Surface, uncheckedTrackColor = colors.Divider)
+                    )
+                }
+
+                Spacer(Modifier.height(16.dp))
 
                 // Buttons
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -722,7 +768,11 @@ private fun NewGameDialog(
                         Text("Cancel", color = colors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     }
                     Box(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(colors.Accent).clickable {
-                        onStartGame(selectedColor, selectedSize, selectedHandicap, komiText.toFloatOrNull() ?: 7.5f)
+                        onStartGame(
+                            selectedColor, selectedSize, selectedHandicap,
+                            komiText.toFloatOrNull() ?: 7.5f,
+                            aiTime, aiCanResign
+                        )
                     }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
                         Text("Start", color = colors.TextOnAccent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     }
