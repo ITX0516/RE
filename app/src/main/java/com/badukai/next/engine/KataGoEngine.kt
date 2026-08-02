@@ -49,7 +49,20 @@ class KataGoEngine(private val context: Context) {
 
     companion object {
         private const val TAG = "KataGoEngine"
-        private const val BINARY_NAME = "libkatago.so"
+
+        // ★ 2026-08-02 FATAL LESSON (#1 engine start bug):
+        //   libkatago.so IS A SHARED LIBRARY (DT_TYPE=DYN). If you exec it via
+        //   linker64 the ELF entry runs JNI_OnLoad/__on_dlopen_handlers →
+        //   no-ops → return → exit(0) in <2s. stderr stays empty, exit=0
+        //   looks like a silent death (this wasted 20+ APK installs!).
+        //   ONLY libmain.so (14KB tiny wrapper, PIE executable) has a real
+        //   main() that calls KataGo's GTP server loop. BINARY_NAME *must* be
+        //   libmain.so.
+        //   libmain.so DT_NEEDED libkatago.so → resolved from nativeLibraryDir
+        //   (AT HEAD of LD_LIBRARY_PATH below) at runtime automatically, so
+        //   the 5.3MB engine lib is still required on the linker search path.
+        private const val BINARY_NAME = "libmain.so"
+        private const val ENGINE_LIB_NAME = "libkatago.so"
         private const val CONFIG_NAME = "gtp_static.cfg"
 
         /** Linker 64-bit loader candidates (in preference order). */
@@ -280,6 +293,20 @@ class KataGoEngine(private val context: Context) {
             val problems = mutableListOf<String>()
             if (!configFile.isFile || configFile.length() < 1000L || !configFile.canRead()) problems += "configFile invalid/missing (expect 7KB+ readable gtp cfg)"
             if (!modelFile.isFile || !modelFile.canRead()) problems += "modelFile(source=$source) missing/unreadable"
+            // 2026-08-02 ENGINE_LIB check: libmain.so is the exec wrapper but it
+            // DT_NEEDED libkatago.so (the real 5.3MB engine). If the engine lib is
+            // missing from nativeLibraryDir the FIRST instruction of main() will
+            // SIGSEGV/crash-link with an empty stderr line — indistinguishable from
+            // the old 'wrong binary' bug. Catch this EARLY in preflight so toast
+            // says exactly what's wrong, instead of 4 silent Plan failures.
+            val engineLib = nativeLibraryDir?.resolve(ENGINE_LIB_NAME)
+            when {
+                nativeLibraryDir == null -> problems += "nativeLibraryDir is NULL (app context lost)"
+                engineLib == null -> problems += "nativeLibraryDir resolved but $ENGINE_LIB_NAME path null"
+                !engineLib.isFile -> problems += "nativeLibraryDir/$ENGINE_LIB_NAME missing (APK pruned too aggressively? DT_NEEDED by $BINARY_NAME)"
+                engineLib.length() < 5_000_000 -> problems += "nativeLibraryDir/$ENGINE_LIB_NAME truncated (expect 5.3MB actual ${engineLib.length()} bytes; APK packaging corrupted?)"
+                !engineLib.canRead() -> problems += "nativeLibraryDir/$ENGINE_LIB_NAME unreadable (SELinux context wrong?)"
+            }
             diagLine("--- preflight ---")
             if (problems.isEmpty()) diagLine("  OK (pass)") else diagLine("  FAIL: ${problems.joinToString(" | ")}")
             if (problems.isNotEmpty()) {
@@ -308,11 +335,14 @@ class KataGoEngine(private val context: Context) {
         // "copy deps → LD_LIBRARY_PATH=filesDir" surface area that broke launch.
         // ---- 8< ----
         val filesDirBinary = File(filesDir, BINARY_NAME)
-        // Prefer nativeLibraryDir/libkatago.so as the COPY SOURCE for exec bit
-        // reason (OS already verified the ABI, sha matches apk signature);
-        // fall back to assets/libkatago.so only if jniLibs copy is missing.
+        // Prefer nativeLibraryDir/libmain.so as the COPY SOURCE for exec bit
+        // reason (OS already verified the ABI, sha matches apk signature).
+        // libmain.so = 14KB tiny exec wrapper (the only real PIE binary);
+        // libkatago.so stays in nativeLibraryDir as DT_NEEDED load target.
+        // Size threshold: > 10_000 bytes (libmain = 14344 passes; if BINARY_NAME
+        // ever reverts to libkatago.so 5.3MB also passes; broken truncation 0-5KB fails).
         val jniBinary: File? = nativeLibraryDir?.resolve(BINARY_NAME)
-            ?.takeIf { it.exists() && it.isFile && it.length() > 1_000_000 }
+            ?.takeIf { it.exists() && it.isFile && it.length() > 10_000L }
         val assetAvailable = try {
             context.assets.open(BINARY_NAME).close(); true
         } catch (_: Exception) {
