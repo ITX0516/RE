@@ -99,14 +99,20 @@ class KataGoEngine(private val context: Context) {
             return@withContext true
         }
 
-        AppLogger.i(TAG, "=== KATAGO ENGINE START (shrink v2+P3 — assets→filesDir, 0 jniLibs extract) ===")
+        AppLogger.i(TAG, "=== KATAGO ENGINE START (reliability revert — jniLibs back, nativeLibraryDir primary) ===")
 
         // ---- Directories + config ------------------------------------------------
         val filesDir = context.filesDir
-        // NOTE: context.applicationInfo.nativeLibraryDir is NO LONGER referenced.
-        // P3 moved every runtime .so out of jniLibs/ into assets/deps/ → copies
-        // live inside filesDir/ exclusively. android:extractNativeLibs=false means
-        // the system doesn't even create /data/app-lib for us.
+        // AI START RELIABILITY REVERT (2026-08-02): nativeLibraryDir is back as the
+        // PRIMARY dep-search source. With extractNativeLibs=true the OS guarantees
+        // 6 real on-disk files here:
+        //   libkatago.so libc++_shared.so libcalculator.so libffi.so libmain.so libcdsprpc.so
+        // filesDir is only used as a COPY-FROM-JNILIBS fallback (for exec bits, since
+        // app-lib mounts are sometimes noexec) and for the engine binary itself.
+        val nativeLibraryDir: File? = try {
+            context.applicationInfo.nativeLibraryDir?.let { File(it) }?.takeIf { it.exists() && it.isDirectory }
+        } catch (_: Exception) { null }
+        AppLogger.i(TAG, "nativeLibraryDir: ${nativeLibraryDir?.absolutePath ?: "NULL"} (exists=${nativeLibraryDir?.exists()})")
 
         val hexagonDir = File(filesDir, "hexagon")
         if (!hexagonDir.exists()) {
@@ -133,85 +139,98 @@ class KataGoEngine(private val context: Context) {
         AppLogger.i(TAG, "Model: ${modelFile.absolutePath} (exists=${modelFile.exists()}, size=${modelFile.length()})")
         AppLogger.i(TAG, "Config: ${configFile.absolutePath} (exists=${configFile.exists()})")
 
-        // ---- Install engine binary + all ld.so deps into filesDir ----------------
+        // ---- Install engine binary into filesDir (exec source) ------------------
         //
-        // P3 layout (total runtime copy ~6.3MB inside filesDir, 0 anywhere else):
-        //   filesDir/libkatago.so     ← assets/libkatago.so
-        //   filesDir/libc++_shared.so  ← assets/deps/libc++_shared.so
-        //   filesDir/libcalculator.so  ← assets/deps/libcalculator.so
-        //   filesDir/libffi.so         ← assets/deps/libffi.so
-        //   filesDir/libmain.so        ← assets/deps/libmain.so
-        //   filesDir/libcdsprpc.so     ← assets/deps/libcdsprpc.so
+        // RELIABILITY REVERT layout:
+        //   nativeLibraryDir/     ← 6 OS-extracted .so (DEPENDENCY SEARCH, PRIMARY)
+        //       libkatago.so        (may be noexec in some vendor builds)
+        //       libc++_shared.so
+        //       libcalculator.so
+        //       libffi.so
+        //       libmain.so
+        //       libcdsprpc.so
+        //   filesDir/             ← COPY of libkatago.so only (EXEC CANDIDATE, chmod +x)
+        //       libkatago.so        (from assets/libkatago.so, size-checked)
         //
-        // All copies are size-verified (if file exists & size matches → skip).
+        // Deps are NOT copied to filesDir any more — they are read DIRECTLY from
+        // nativeLibraryDir via LD_LIBRARY_PATH (head of the path list). This is
+        // exactly how upstream badukai launches and should remove 100% of the
+        // "copy deps → LD_LIBRARY_PATH=filesDir" surface area that broke launch.
         // ---- 8< ----
         val filesDirBinary = File(filesDir, BINARY_NAME)
+        // Prefer nativeLibraryDir/libkatago.so as the COPY SOURCE for exec bit
+        // reason (OS already verified the ABI, sha matches apk signature);
+        // fall back to assets/libkatago.so only if jniLibs copy is missing.
+        val jniBinary: File? = nativeLibraryDir?.resolve(BINARY_NAME)
+            ?.takeIf { it.exists() && it.isFile && it.length() > 1_000_000 }
         val assetAvailable = try {
             context.assets.open(BINARY_NAME).close(); true
         } catch (_: Exception) {
             false
         }
-        if (!assetAvailable) {
-            AppLogger.e(TAG, "assets/$BINARY_NAME is NOT packaged in APK. " +
-                "Engine start requires assets/libkatago.so as the binary source. " +
-                "Check setup-from-badukai.sh stage P2 accidentally deleted it — it should ONLY delete jniLibs/libkatago.so.")
-            return@withContext false
+        AppLogger.i(TAG, "Binary sources: jniLibs=${jniBinary?.absolutePath} (exists=${jniBinary?.exists()}), assets=$assetAvailable")
+        val copySource = when {
+            jniBinary != null -> {
+                AppLogger.i(TAG, "Binary copy source = jniLibs (preferred)")
+                "jni"
+            }
+            assetAvailable -> {
+                AppLogger.i(TAG, "Binary copy source = assets (fallback)")
+                "assets"
+            }
+            else -> {
+                AppLogger.e(TAG, "FATAL: no binary source available! Need either jniLibs/$BINARY_NAME or assets/$BINARY_NAME packaged.")
+                return@withContext false
+            }
         }
-        if (!filesDirBinary.exists() || shouldUpdateBinary(filesDirBinary)) {
-            copyAssetToFile(BINARY_NAME, filesDirBinary)
+        val needCopy = when {
+            !filesDirBinary.exists() -> true
+            jniBinary != null -> filesDirBinary.length() != jniBinary.length()
+            else -> shouldUpdateBinary(filesDirBinary) // asset size compare fallback
+        }
+        if (needCopy) {
+            when (copySource) {
+                "jni" -> {
+                    jniBinary!!.inputStream().use { inp ->
+                        java.io.FileOutputStream(filesDirBinary).use { out -> inp.copyTo(out) }
+                    }
+                    AppLogger.i(TAG, "Installed jniLibs→filesDir binary: ${filesDirBinary.absolutePath} size=${filesDirBinary.length()}")
+                }
+                else -> {
+                    copyAssetToFile(BINARY_NAME, filesDirBinary)
+                    AppLogger.i(TAG, "Installed assets→filesDir binary: ${filesDirBinary.absolutePath} size=${filesDirBinary.length()}")
+                }
+            }
             try { filesDirBinary.setExecutable(true, false) } catch (_: Exception) {}
-            AppLogger.i(TAG, "Installed assets→filesDir binary: ${filesDirBinary.absolutePath} size=${filesDirBinary.length()}")
         } else {
             AppLogger.i(TAG, "filesDir binary up-to-date: ${filesDirBinary.absolutePath} size=${filesDirBinary.length()}")
         }
 
-        // Copy runtime loader deps from assets:deps to filesDir so
-        // KataGo child-process can resolve them via LD_LIBRARY_PATH.
-        val depsAssetFiles: List<String> = try {
-            context.assets.list("deps")?.filter { it.endsWith(".so") }?.toList() ?: emptyList()
-        } catch (_: Exception) {
-            emptyList()
+        // Also try chmod +x on nativeLibraryDir/libkatago.so as a DIRECT EXEC CANDIDATE
+        // (Plan 0 below: straight exec from OS-extracted location). This almost always
+        // fails due to SELinux / nosuid / noexec on /data/app-lib, but cost is 1 syscall.
+        if (jniBinary != null) {
+            val ok = try { jniBinary.setExecutable(true, false) } catch (_: Exception) { false }
+            AppLogger.i(TAG, "chmod +x jniLibs/$BINARY_NAME → $ok (direct exec candidate)")
         }
-        AppLogger.i(TAG, "assets/deps declares ${depsAssetFiles.size} .so: ${depsAssetFiles.joinToString()}")
-        for (depName in depsAssetFiles) {
-            val depAssetPath = "deps/$depName"
-            val depOut = File(filesDir, depName)
-            val needCopy = try {
-                if (!depOut.exists()) true
-                else {
-                    val assetSize = context.assets.open(depAssetPath).use { it.available() }
-                    depOut.length() != assetSize.toLong()
-                }
-            } catch (_: Exception) {
-                true
-            }
-            if (needCopy) {
-                copyAssetToFile(depAssetPath, depOut)
-                try { depOut.setExecutable(true, false) } catch (_: Exception) {}
-                AppLogger.i(TAG, "Installed dep: assets/$depAssetPath → ${depOut.absolutePath} size=${depOut.length()}")
-            }
-        }
-        if (depsAssetFiles.isEmpty()) {
-            AppLogger.w(TAG, "WARNING: assets/deps/ is empty or missing! If KataGo dies with " +
-                "'libc++_shared.so: cannot open shared object file: No such file or directory' " +
-                "then Stage P3 move-to-assets/deps failed in setup/CI.")
-        }
-        // ---- ---- 8< ---- end of P3 install ----
+        // ---- ---- 8< ---- end of install ----
 
         // ---- Shared env / args ---------------------------------------------------
-        // P3: LD_LIBRARY_PATH points ONLY at filesDir (where we just installed
-        // libc++_shared.so & friends). NativeLibraryDir is intentionally dropped —
-        // jniLibs is empty, extractNativeLibs=false, so the system never created
-        // any app-lib copies; vendor paths kept in case some device ships OpenCL
-        // ICDs there.
+        // RELIABILITY REVERT: nativeLibraryDir AT HEAD of LD_LIBRARY_PATH so dlopen
+        // finds libc++_shared.so / libcalculator.so / etc via the OS-extracted copies
+        // FIRST (zero copy, zero latency, zero copy-version-mismatch risk).
+        // filesDir still in the list for any stale copies from old builds, and
+        // vendor paths for OpenCL ICDs / DSP stubs.
         val envBase = LinkedHashMap<String, String>().apply {
             put("LD_LIBRARY_PATH", listOfNotNull(
-                filesDir.absolutePath,
+                nativeLibraryDir?.absolutePath,   // PRIMARY dep dir (OS extracted, trusted)
+                filesDir.absolutePath,            // fallback (old copies / direct)
                 hexagonDir.absolutePath,
                 "/vendor/lib64",
                 "/system/vendor/lib64"
             ).joinToString(":"))
             put("ADSP_LIBRARY_PATH", listOfNotNull(
+                nativeLibraryDir?.absolutePath,
                 filesDir.absolutePath,
                 hexagonDir.absolutePath,
                 "/system/lib/rfsa/adsp",
@@ -220,20 +239,32 @@ class KataGoEngine(private val context: Context) {
             ).joinToString(";"))
             put("HOME", filesDir.absolutePath)
         }
+        AppLogger.i(TAG, "LD_LIBRARY_PATH = ${envBase["LD_LIBRARY_PATH"]}")
         val gtpArgs = listOf("gtp", "-model", modelFile.absolutePath, "-config", configFile.absolutePath)
         val linker64 = LINKER64_CANDIDATES.firstOrNull { File(it).exists() }
-        AppLogger.i(TAG, "Detected linker64: ${linker64 ?: "NONE — Plan 1 skipped"}")
-        AppLogger.i(TAG, "filesDir so inventory (exec candidate list):")
+        AppLogger.i(TAG, "Detected linker64: ${linker64 ?: "NONE — linker64 plans skipped"}")
+        AppLogger.i(TAG, "nativeLibraryDir so inventory (PRIMARY dep-search set):")
+        nativeLibraryDir?.listFiles()?.filter { it.name.endsWith(".so") }
+            ?.sortedByDescending { it.length() }
+            ?.forEach { f -> AppLogger.i(TAG, "  ${f.name}  ${f.length()} bytes  exec=${f.canExecute()}") }
+        AppLogger.i(TAG, "filesDir so inventory (exec-candidate set):")
         filesDir.listFiles()?.filter { it.name.endsWith(".so") }
             ?.sortedByDescending { it.length() }
-            ?.forEach { f -> AppLogger.i(TAG, "  ${f.name}  ${f.length()} bytes") }
+            ?.forEach { f -> AppLogger.i(TAG, "  ${f.name}  ${f.length()} bytes  exec=${f.canExecute()}") }
 
         // ---- Build launch plan list ----------------------------------------------
-        val plans = listOfNotNull(
-            if (linker64 != null) StartPlan("Path B1 (filesDir + linker64)", filesDirBinary, true) else null,
-            StartPlan("Path B2 (filesDir PIE direct)", filesDirBinary, false)
-        )
-        AppLogger.i(TAG, "Engine start plans (in order): ${plans.joinToString { it.label }}")
+        // Try jniLibs direct locations FIRST, then filesDir copies, with & without
+        // linker64 interposer. Total 4–6 plans, with the "always worked" upstream
+        // equivalent (linker64 + jniLibs binary) tried BEFORE any filesDir copies.
+        val plans = mutableListOf<StartPlan>().apply {
+            if (jniBinary != null) {
+                if (linker64 != null) add(StartPlan("Plan A1: jniLibs binary via linker64 (upstream default)", jniBinary, true))
+                add(StartPlan("Plan A2: jniLibs binary direct (PIE exec)", jniBinary, false))
+            }
+            if (linker64 != null) add(StartPlan("Plan B1: filesDir binary via linker64", filesDirBinary, true))
+            add(StartPlan("Plan B2: filesDir binary direct (PIE exec)", filesDirBinary, false))
+        }.toList()
+        AppLogger.i(TAG, "Engine start plans (in order, ${plans.size} total): ${plans.joinToString { it.label }}")
 
         // ---- Execute plans in order ----------------------------------------------
         var lastFailureReason: String? = null

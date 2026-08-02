@@ -46,17 +46,19 @@ android {
 
     packaging {
         jniLibs {
-            // APK SHRINK v2 (2026-08-02):
-            //   0 Java System.loadLibrary calls in the codebase → no JNI loading.
-            //   All native libs (KataGo engine + its ld.so deps) live in assets/:
-            //     assets/libkatago.so     (PIE binary — exec'd via assets→filesDir)
-            //     assets/deps/*.so        (libc++_shared, libcalculator, libffi,
-            //                               libmain, libcdsprpc — copied to filesDir
-            //                               and resolved via LD_LIBRARY_PATH=filesDir)
-            //   jniLibs/ is therefore EMPTY. Gradle has nothing to package, extract,
-            //   or compress here. useLegacyPackaging=false is still the sensible
-            //   default so any *future* jni addition is compressed in the APK.
-            useLegacyPackaging = false
+            // AI-START RELIABILITY REVERT (2026-08-02): useLegacyPackaging=true.
+            //   After "Failed to start AI" on 14.7MB build we revert all novel
+            //   packaging to the CONSERVATIVE defaults that are known to work:
+            //     - jniLibs now has 6 .so files (libkatago + 5 ld.so deps).
+            //     - Legacy packaging = Gradle does NOT compress jniLibs inside the
+            //       APK → each .so is stored uncompressed, 4k-page-aligned, which
+            //       is historically what linker / PackageManager / ART test against.
+            //     - Combined with extractNativeLibs=true in the manifest, the OS
+            //       GUARANTEES a real extracted copy in /data/app-lib (nativeLibraryDir)
+            //       that dlopen() can always find, even for child processes that
+            //       do NOT share ART's linker-namespace (i.e. plain exec*() + LD_LIBRARY_PATH).
+            //   APK size cost: ~6MB extra vs compressed jniLibs. Worth it.
+            useLegacyPackaging = true
         }
     }
 

@@ -184,73 +184,55 @@ prune "$DST_APP/jniLibs/arm64-v8a/libQnnIr.so"                   # 15KB
 prune "$DST_APP/jniLibs/arm64-v8a/libQnnGpu.so"                  # 15KB (separate OpenCL path via Qnn GPU — not used by KataGo, KataGo has its own OpenCL)
 
 # ================================================================
-# Stage P2 — Kill the jniLibs libkatago.so entirely (~5MB)
-#   Path-A (jniLibs direct exec) removed from KataGoEngine.kt; only
-#   assets/ → files/ copy (Path B) runs. This removes the *duplicate*
-#   of assets/libkatago.so that was inflating APK/jniLibs/app-lib 3x.
+# Stage P2 — KEEP jniLibs/libkatago.so (DO NOT DELETE) — REVERTED
+#   Reverted 2026-08-02 after "Failed to start AI" on 14.7MB build.
+#   Keeping both assets/libkatago.so (copy source) AND jniLibs/libkatago.so
+#   (system nativeLibraryDir fallback) maximizes AI launch reliability even
+#   if it costs ~5MB of APK size. Duplication is acceptable for stability.
 # ================================================================
-stage P2 "DROP jniLibs/libkatago.so (5MB): engine start is assets→filesDir only"
-prune "$DST_APP/jniLibs/arm64-v8a/libkatago.so"
+stage P2 "REVERTED: KEEP jniLibs/libkatago.so for launch reliability"
+echo "  (no-op: keeping jniLibs/libkatago.so in place)"
 
 # ================================================================
-# Stage P3 — Move remaining 5 jniLibs .so into assets/deps/, then DROP jniLibs.
-#   0 Java System.loadLibrary() calls in the codebase → no JNI loading ever.
-#   The only remaining .so consumers are KataGo child-process dlopen() calls
-#   for libc++_shared / libcalculator / libffi / libmain / libcdsprpc.
-#   Moving them to assets/deps/ means:
-#     • Gradle stops treating them as "jniLibs" → no useLegacyPackaging effect,
-#       no auto-extraction to /data/app-lib, NO more inflated install size.
-#     • KataGoEngine copies assets/deps/*.so to filesDir on startup, then
-#       sets LD_LIBRARY_PATH=filesDir:hexagonDir (no nativeLibraryDir needed).
-#     • After this stage, jniLibs/arm64-v8a is EMPTY and can be removed.
+# Stage P3 — KEEP remaining jniLibs .so IN jniLibs (DO NOT MOVE) — REVERTED
+#   Reverted 2026-08-02 after "Failed to start AI" on 14.7MB build.
+#   The 5 remaining deps (libc++_shared, libcalculator, libffi, libmain,
+#   libcdsprpc) are left inside jniLibs/arm64-v8a so Gradle packages them
+#   as bona fide JNI libs. With extractNativeLibs=true the PackageManager
+#   extracts them to /data/app-lib, which is on the linker's standard
+#   native-library search path and is GUARANTEED to be readable +
+#   dlopen()able by any child process we exec from our own UID.
+#   This is the conservative choice: ~1.2MB of extra on-disk footprint
+#   but removes the entire "copy deps to filesDir and manage LD_LIBRARY_PATH"
+#   variable-setting surface area that most likely broke launch.
 # ================================================================
-stage P3 "MOVE jniLibs/*.so → assets/deps/*.so, then rm jniLibs (0 jni System.load call in codebase)"
-DEST_DEPS="$DST_APP/assets/deps"
-mkdir -p "$DEST_DEPS"
-for so in "$DST_APP/jniLibs/arm64-v8a"/*.so; do
-    if [ -f "$so" ]; then
-        base="$(basename "$so")"
-        mv -fv "$so" "$DEST_DEPS/$base" || {
-            # If files already on different FS, fall back to cp+rm
-            cp -fv "$so" "$DEST_DEPS/$base" && rm -fv "$so"
-        }
-    fi
-done
-# Remove the now-empty arm64-v8a dir and (if empty) the parent jniLibs dir
-rmdir -v "$DST_APP/jniLibs/arm64-v8a" 2>/dev/null || true
-rmdir -v "$DST_APP/jniLibs"           2>/dev/null || true
-# If any stragglers survive the glob (shouldn't), hammer them with prune
-prune "$DST_APP/jniLibs/arm64-v8a"/*.so 2>/dev/null || true
+stage P3 "REVERTED: KEEP 5 jniLibs deps in jniLibs (no assets/deps move)"
+echo "  (no-op: keeping jniLibs/arm64-v8a/*.so in place)"
 
 echo ""
-echo "==> Summary (after full shrink pipeline)"
+echo "==> Summary (after shrink pipeline — P0/P1 only, P2/P3 reverted for AI launch reliability)"
 echo "assets/libkatago.so:   $(ls -lh "$DST_APP/assets/libkatago.so"    2>/dev/null | awk '{print $5}' || echo MISSING)"
 echo "assets/gtp_static.cfg: $(ls -lh "$DST_APP/assets/gtp_static.cfg" 2>/dev/null | awk '{print $5}' || echo MISSING)"
 # NOTE: `find … | wc -l | tr -d ' '` wrapped with `{ find … || true; }` because
 # `set -euo pipefail` turns a non-zero exit from *any* pipeline member into a
-# script-wide fatal error. When a directory has been rmdir'd (e.g. jniLibs
-# after Stage P3) `find` exits non-zero → pipefail propagates → script dies.
-# The `|| true` inside the braces makes find always contribute exit 0 to the
-# pipe. Same pattern applied below for all |wc -l summaries.
+# script-wide fatal error. Keeping the guard is still useful (belt & suspenders)
+# even though P3 no longer removes jniLibs.
 echo "assets/models:         $( { find "$DST_APP/assets/models" -maxdepth 1 -type f 2>/dev/null || true; } | wc -l | tr -d ' ') files"
+# assets/deps is intentionally UNUSED (empty / missing) after P3 revert.
 deps_count=$( { find "$DST_APP/assets/deps" -maxdepth 1 -name "*.so" -type f 2>/dev/null || true; } | wc -l | tr -d ' ' )
-# Use find+du instead of shell glob (avoids nullglob / empty-args problem with
-# set -euo pipefail). If no .so found, `du` returns nothing → default 0.
-# NOTE: `{ find … || true; }` — same pipefail guard as above: when assets/deps/
-# dir itself is missing (rmdir'd earlier), `find` exits non-zero and without the
-# guard pipefail kills the whole $() subshell.
-deps_bytes=$( { find "$DST_APP/assets/deps" -maxdepth 1 -name "*.so" -type f -print0 2>/dev/null || true; } \
-  | xargs -0 -r du -cb 2>/dev/null | tail -1 | awk '{print $1}')
-deps_bytes="${deps_bytes:-0}"
-[[ "$deps_bytes" =~ ^[0-9]+$ ]] || deps_bytes=0
-deps_mb=$(( deps_bytes / 1048576 ))
-echo "assets/deps/ (KataGo ld.so deps): $deps_count .so files = ${deps_mb}MB"
+echo "assets/deps/ (UNUSED after P3 revert): $deps_count .so files"
+# jniLibs should now have 6 .so: libkatago.so + 5 ld.so deps
 jni_count=$( { find "$DST_APP/jniLibs" -name "*.so" -type f 2>/dev/null || true; } | wc -l | tr -d ' ' )
-echo "jniLibs/ .so remaining (should be 0): $jni_count"
+jni_bytes=$( { find "$DST_APP/jniLibs" -name "*.so" -type f -print0 2>/dev/null || true; } \
+  | xargs -0 -r du -cb 2>/dev/null | tail -1 | awk '{print $1}')
+jni_bytes="${jni_bytes:-0}"
+[[ "$jni_bytes" =~ ^[0-9]+$ ]] || jni_bytes=0
+jni_mb=$(( jni_bytes / 1048576 ))
+echo "jniLibs/ .so remaining (expect 6: libkatago + 5 deps): $jni_count files = ${jni_mb}MB"
 
 echo ""
 echo "==> Post-prune top .so sizes (largest first)"
-find "$DST_APP" -name "*.so" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}' | sort -rh | head -20
+{ find "$DST_APP" -name "*.so" -exec ls -lh {} \; 2>/dev/null || true; } | awk '{print $5, $NF}' | sort -rh | head -20
 
 echo ""
 echo "Done. Now run:  ./gradlew assembleDebug"

@@ -9,16 +9,20 @@
         android:maxSdkVersion="32" />
 
     <!--
-         APK SHRINK v2 (2026-08-02): extractNativeLibs=false.
-         • jniLibs/ is EMPTY (all .so moved to assets/).
-         • 0 Java System.loadLibrary calls in the codebase — no JNI loading.
-         • KataGo child-process loads its deps FROM filesDir only:
-             assets/libkatago.so  → filesDir/libkatago.so (exec'd)
-             assets/deps/*.so     → filesDir/*.so        (LD_LIBRARY_PATH=filesDir)
-         Setting this to false means the PackageManager will NOT waste space
-         extracting jniLibs copies to /data/app-lib (there are none anyway).
-         Also guarantees 4-byte-aligned uncompressed alignment for any future
-         accidental jniLib addition (Android R+ requirement).
+         AI-START RELIABILITY REVERT (2026-08-02): extractNativeLibs=true.
+         • After "Failed to start AI" on 14.7MB build we revert to the fully
+           conservative, historically-tested default: PackageManager MUST
+           extract every jniLibs/*.so to /data/app-lib at install time.
+         • jniLibs now has 6 .so: libkatago.so + 5 ld.so deps.
+         • With extraction guaranteed, context.applicationInfo.nativeLibraryDir
+           points at a REAL directory with real files on-disk — our KataGo
+           child-process can dlopen them via LD_LIBRARY_PATH without ever
+           having to copy them itself, and linker namespace restrictions are
+           much less likely to break dlopen() for a same-UID exec() child.
+         • This is the SAME configuration used by the upstream badukai build
+           and every single pre-shrink-release APK that ever started AI OK.
+         • APK/installed-size cost: ~6MB jniLibs + extracted 6MB = ~12MB total.
+           Acceptable for guaranteed "engine starts first try" behaviour.
     -->
     <application
         android:name=".BadukNextApplication"
@@ -28,7 +32,7 @@
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.BadukNext"
-        android:extractNativeLibs="false"
+        android:extractNativeLibs="true"
         tools:targetApi="34">
 
         <activity
