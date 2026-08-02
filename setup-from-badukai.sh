@@ -88,6 +88,42 @@ copy_file "$SRC_APP/assets/libkatago.so"    "$DST_APP/assets/libkatago.so"
 copy_file "$SRC_APP/assets/gtp_static.cfg"  "$DST_APP/assets/gtp_static.cfg"
 copy_dir  "$SRC_APP/assets/models"          "$DST_APP/assets/models"
 
+# ====================================================================
+# Stage P0-runtimecfg — ANDROID RUNTIME-SAFE gtp_static.cfg OVERRIDE
+#   2026-08-02 — 20+ builds exit=0 empty stderr root-cause #1 & #2
+#     P0-runtimecfg-A: logToStderr=false → true.
+#       When Katago hits any init error (OpenCL dlopen failure, wrong
+#       HOME, DSP init, bad model), it writes to KATA_LOG_FILE or
+#       ~/.katago/katago.log — BOTH LOCATIONS WE CANNOT READ IN
+#       ProcessBuilder stderr. Setting logToStderr=true pipes ALL
+#       init errors DIRECTLY to process.errorStream so the user's
+#       diagnostic toast shows the real problem. This was the #1
+#       reason all 20 toasts said "stderr = empty".
+#
+#     P0-runtimecfg-B: Comment out all openclDeviceToUseThread* force
+#       assignments. When Katago's default OpenCL probe finds no
+#       usable GPU ICD on non-Qualcomm/older-Mali/Google Tensor phones
+#       it aborts nn init before GTP server start. By NOT forcing a
+#       specific OpenCL device index, Katago falls back to the FIRST
+#       nnBackend that successfully initializes (CPU / TFLite-CPU /
+#       etc.), which works on all Android SoCs.
+# ====================================================================
+stage P0-runtimecfg "Patch gtp_static.cfg for Android runtime reliability (logToStderr=true, remove forced OpenCL device pins)"
+CFG="$DST_APP/assets/gtp_static.cfg"
+if [ -f "$CFG" ]; then
+    # P0-runtimecfg-A
+    sed -i.bak -E 's/^([[:space:]]*logToStderr[[:space:]]*=[[:space:]]*)false[[:space:]]*$/\1true/' "$CFG" && rm -f "$CFG.bak"
+    # P0-runtimecfg-B: comment all openclDeviceToUseThread lines; keep
+    # line as documentation but do NOT force a device index.
+    sed -i.bak -E 's/^([[:space:]]*)(openclDeviceToUseThread[0-9]+[[:space:]]*=.*)$/# RUNTIME-PATCH: no forced-OpenCL-device (CPU fallback enabled)\n#\1\2/' "$CFG" 2>/dev/null && rm -f "$CFG.bak" || true
+    # If above multi-line sed did not run (e.g., old sed), do plain line-by-line comment:
+    grep -Eq '^[[:space:]]*openclDeviceToUseThread' "$CFG" && {
+        awk '$0 ~ /^[[:space:]]*openclDeviceToUseThread/ { print "# RUNTIME-PATCH: openclDevice force-assign commented to allow CPU fallback\n#" $0; next }1' "$CFG" > "${CFG}.new" && mv -v "${CFG}.new" "$CFG"
+    } || true
+    echo "  After patch — $(grep -E '^logToStderr|^openclDeviceToUse' "$CFG" || echo "(no unpatched lines ✓)")"
+    grep -qE '^[[:space:]]*logToStderr[[:space:]]*=[[:space:]]*true' "$CFG" && echo "  [OK] logToStderr=true confirmed in patched cfg"
+fi
+
 echo ""
 echo "==> Copying jniLibs/arm64-v8a from $SRC_APP"
 copy_dir "$SRC_APP/jniLibs/arm64-v8a"       "$DST_APP/jniLibs/arm64-v8a"

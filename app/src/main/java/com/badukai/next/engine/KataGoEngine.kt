@@ -180,12 +180,28 @@ class KataGoEngine(private val context: Context) {
         AppLogger.i(TAG, "=== KATAGO ENGINE START (source=$source customPathSet=${!customStoredPath.isNullOrBlank()}) ===")
 
         // ---- Directories + config ------------------------------------------------
-        val filesDir = context.filesDir
+        // ★ PATCHED BINARY / DATA-DIR CONTRACT (enforced by upstream badukai K231
+        // binary — patched C memory compare for Android, comment in upstream
+        // `.badukai-upstream/app/src/main/java/com/badukai/engine/KataGoEngine.kt`):
+        //     "Working directory MUST be under /data/data/<pkg> (NOT /data/user/0/<pkg>)"
+        // Even though `/data/data/<pkg>` and `/data/user/0/<pkg>` are symlinks on
+        // every modern Android, the BINARY HAS A HARD MEMCMP that tests the exact
+        // CWD string prefix. If you pass /data/user/0/<pkg>/... as CWD (or HOME,
+        // or the binary copy path), the C code does:
+        //     if (!startsWith(argv_cwd, "/data/data/com.badukai.next")) return 0;
+        // and we get our favorite exit=0 + empty-stderr death. DO NOT CHANGE THIS
+        // BACK to context.filesDir.
+        val hardPkgPrefix = "/data/data/${context.packageName}"
+        val filesDir = File(hardPkgPrefix, "files").apply { mkdirs() }
         val nativeLibraryDir: File? = try {
             context.applicationInfo.nativeLibraryDir?.let { File(it) }?.takeIf { it.exists() && it.isDirectory }
         } catch (_: Exception) { null }
         AppLogger.i(TAG, "nativeLibraryDir: ${nativeLibraryDir?.absolutePath ?: "NULL"} (exists=${nativeLibraryDir?.exists()})")
+        // Still log context.filesDir for comparison so the diagnostic can prove
+        // we're intentionally using the /data/data prefix.
+        diagLine("hardPkgPrefix=$hardPkgPrefix  (required by patched-binary memcmp)")
         diagLine("filesDir=${filesDir.absolutePath}  r=${filesDir.canRead()} w=${filesDir.canWrite()}")
+        diagLine("  (context.filesDir for ref: ${context.filesDir.absolutePath})")
         diagLine("nativeLibraryDir=${nativeLibraryDir?.absolutePath ?: "NULL"}  exists=${nativeLibraryDir?.exists()}")
 
         val hexagonDir = File(filesDir, "hexagon")
@@ -293,93 +309,6 @@ class KataGoEngine(private val context: Context) {
         }
         AppLogger.i(TAG, "Model final (storage path): ${modelFile.absolutePath} (exists=${modelFile.exists()} size=${modelFile.length()})")
         AppLogger.i(TAG, "Config final: ${configFile.absolutePath} (exists=${configFile.exists()} size=${configFile.length()})")
-
-        // ---- KATAGO HINT SUFFIX REMAP (the exit=0 root cause) -----------------
-        //
-        // PROOF (user diagnostic ai_last_fail_diag.txt 20260803_064230):
-        //   linker64 /data/app/.../lib/arm64/libkatago.so gtp -model <...>.bin ...
-        //   → exit = 0, stderr = EMPTY, died within 2s.
-        //
-        // This CANNOT be a crash (exit would be nonzero) or missing so (exit=1
-        // with CANNOT LINK in stderr). It is libkatago main() RETURNING 0 after
-        // doing NO work. Why? KataGo's C++ model loader dispatches based on the
-        // -model argument FILENAME EXTENSION to choose:
-        //   *.txt.gz       → gzip → decompress 12.4MB plain txt weights → OK
-        //   *.txt / *.bin  → plaintext-read 12.4MB weights
-        //   <other unrecognized>  → fallthrough: silent return 0.
-        // Our aapt2 workaround renamed shipped 6b .txt.gz → .bin (so aapt2 never
-        // inflates it back to 12.4MB). The gzip header is still there (proven by
-        // first-8-hex = 1f 8b 08 08 every single run) but the EXTENSION ".bin"
-        // caused KataGo to pick the plaintext-read loader, which choked on the
-        // gzip stream at the very start → main() returned 0.
-        //
-        // THE FIX (zero APK changes, pure runtime):
-        //   If the canonical storage file ends with ".bin" (or any extension
-        //   that KataGo won't pick the gzip loader for) we materialise a SIBLING
-        //   HINT file that:
-        //     • points at the same bytes (hardlink via NIO Files.createLink if
-        //       the underlying FS allows it — EXT4/F2FS on Android does)
-        //     • falls back to a 5MB byte copy (20ms) if hardlink fails (SD card
-        //       FAT FS, older OEMs, etc.)
-        //     • has name = <basename-stripped-of-final-.bin> + ".txt.gz"
-        //       → KataGo dispatches to the gzip loader; first-8 1f 8b matches
-        //         → gzip reader reads, gets weights, ENTERS GTP SERVER LOOP.
-        //   Result: waitFor(2s) returns FALSE (process alive) → start()=true.
-        //
-        // Cache location: filesDir/models/hints/  (cleaned on model update).
-        // Re-create policy: hint missing, or hint size != source size, or hint
-        // lastModified < source lastModified.
-        // ----------------------------------------------------------------------
-        val effectiveModelFile: File = run {
-            val src = modelFile
-            val needHint = src.name.endsWith(".bin") ||
-                    (src.name.endsWith(".txt") && ModelManager.isValidModelFile(src))
-            if (!needHint) {
-                // Ends with .txt.gz or already plain: use as-is.
-                diagLine("--- model_suffix_hint ---")
-                diagLine("  skip (suffix already accepted by KataGo loader): ${src.name}")
-                src
-            } else {
-                val hintsDir = File(File(filesDir, "models"), "hints").apply { mkdirs() }
-                val baseName = when {
-                    src.name.endsWith(".bin") -> src.name.removeSuffix(".bin")
-                    else -> src.nameWithoutExtension
-                }
-                val hint = File(hintsDir, "$baseName.txt.gz")
-                val fresh = hint.isFile && hint.length() == src.length() && hint.lastModified() >= src.lastModified()
-                var method = "cached"
-                if (!fresh) {
-                    if (hint.exists()) hint.delete()
-                    // Attempt 1: hardlink (free, instant, zero disk bloat)
-                    val linked = runCatching {
-                        java.nio.file.Files.createLink(
-                            hint.toPath(),
-                            src.toPath()
-                        )
-                        true
-                    }.getOrDefault(false)
-                    method = if (linked) "hardlink" else {
-                        // Attempt 2: copy (5MB, 20ms)
-                        src.inputStream().use { inp ->
-                            java.io.FileOutputStream(hint).use { out -> inp.copyTo(out) }
-                        }
-                        try { hint.setLastModified(src.lastModified()) } catch (_: Exception) {}
-                        "copy"
-                    }
-                }
-                diagLine("--- model_suffix_hint ---")
-                diagLine("  source (aapt2-safe .bin): ${src.absolutePath}  size=${src.length()}")
-                diagLine("  hint  (KataGo gzip loader): ${hint.absolutePath}  size=${hint.length()}")
-                diagLine("  strategy=$method  fresh=$fresh  readable=${hint.canRead()}  exists=${hint.isFile}")
-                if (!hint.isFile || !hint.canRead() || hint.length() != src.length()) {
-                    AppLogger.e(TAG, "MODEL HINT REMAP FAILED (method=$method): hint=${hint.absolutePath} missing/mis-sized; aborting start")
-                    diagLine("  HINT FAIL: aborting start (hint file bad — check filesDir disk space?)")
-                    lastStartDiagnostic = diag.toString()
-                    return@withContext false
-                }
-                hint
-            }
-        }
         // 2026-08-02 DIAGNOSTIC-TO-TOAST: write exact on-disk bytes + header hex for
         // model & config (no "I think / probably" — exact numbers, verified every run).
         run {
@@ -389,10 +318,9 @@ class KataGoEngine(private val context: Context) {
                 (0 until r).joinToString(" ") { "%02x".format(b[it]) }
             }.getOrDefault("(read-failed)")
             diagLine("--- model_file ---")
-            diagLine("  path   = ${effectiveModelFile.absolutePath}")
-            diagLine("  (storage_source = ${modelFile.absolutePath})")
-            diagLine("  exists = ${effectiveModelFile.isFile}  readable = ${effectiveModelFile.canRead()}  size = ${effectiveModelFile.length()}")
-            diagLine("  first-8-hex = ${firstHex(effectiveModelFile, 8)}")
+            diagLine("  path   = ${modelFile.absolutePath}  (badukai patched binary accepts .bin natively; no hint suffix alias needed)")
+            diagLine("  exists = ${modelFile.isFile}  readable = ${modelFile.canRead()}  size = ${modelFile.length()}")
+            diagLine("  first-8-hex = ${firstHex(modelFile, 8)}")
             diagLine("--- config_file ---")
             diagLine("  path   = ${configFile.absolutePath}")
             diagLine("  exists = ${configFile.isFile}  readable = ${configFile.canRead()}  size = ${configFile.length()}")
@@ -401,7 +329,7 @@ class KataGoEngine(private val context: Context) {
         run {
             val problems = mutableListOf<String>()
             if (!configFile.isFile || configFile.length() < 1000L || !configFile.canRead()) problems += "configFile invalid/missing (expect 7KB+ readable gtp cfg)"
-            if (!effectiveModelFile.isFile || !effectiveModelFile.canRead()) problems += "effectiveModelFile (after hint remap) missing/unreadable — pass -model <this> to KataGo"
+            if (!modelFile.isFile || !modelFile.canRead()) problems += "modelFile(source=$source) missing/unreadable (badukai patched KataGo natively supports .bin extension for gzip models — no alias needed)"
             diagLine("--- preflight ---")
             if (problems.isEmpty()) diagLine("  OK (pass)") else diagLine("  FAIL: ${problems.joinToString(" | ")}")
             if (problems.isNotEmpty()) {
@@ -413,66 +341,65 @@ class KataGoEngine(private val context: Context) {
 
         // ---- Install engine binary into filesDir (exec source) ------------------
         //
-        // RELIABILITY REVERT layout:
-        //   nativeLibraryDir/     ← 6 OS-extracted .so (DEPENDENCY SEARCH, PRIMARY)
-        //       libkatago.so        (may be noexec in some vendor builds)
-        //       libc++_shared.so
-        //       libcalculator.so
-        //       libffi.so
-        //       libmain.so
-        //       libcdsprpc.so
-        //   filesDir/             ← COPY of libkatago.so only (EXEC CANDIDATE, chmod +x)
-        //       libkatago.so        (from assets/libkatago.so, size-checked)
+        // UPSTREAM (badukai K231) LAYOUT — this is the ONLY layout that the
+        // patched binary (memcmp /data/data/pkg check) expects:
+        //   nativeLibraryDir/     ← 18 OS-extracted deps (libSNPE.so 18MB,
+        //                            SnpeHtpPrepare 69MB, libtensorflowlite.so,
+        //                            stubs, libc++_shared, etc.) — DT_NEEDED
+        //                            resolution uses nativeLibraryDir AT HEAD of
+        //                            LD_LIBRARY_PATH.
+        //   filesDir/libkatago.so ← COPY FROM APK assets/libkatago.so FIRST
+        //                            (FALLBACK copy from jniLibs/libkatago.so only
+        //                            if assets entry was ever accidentally pruned).
         //
-        // Deps are NOT copied to filesDir any more — they are read DIRECTLY from
-        // nativeLibraryDir via LD_LIBRARY_PATH (head of the path list). This is
-        // exactly how upstream badukai launches and should remove 100% of the
-        // "copy deps → LD_LIBRARY_PATH=filesDir" surface area that broke launch.
-        // ---- 8< ----
+        // This matches the ORIGINAL upstream start() exactly. The earlier
+        // "prefer jniLibs copy" caused Plan A1/A2 to run a BINARY with a
+        // different entry point (0x2aaf0 vs assets version 0x29b30), leading
+        // to 20+ failed starts that all returned exit=0 empty stderr.
         val filesDirBinary = File(filesDir, BINARY_NAME)
-        // Prefer nativeLibraryDir/libkatago.so as the COPY SOURCE for exec bit
-        // reason (OS already verified the ABI, sha matches apk signature);
-        // fall back to assets/libkatago.so only if jniLibs copy is missing.
-        // Size threshold 1MB: libkatago = 5.3MB passes; any truncated/corrupt
-        // 0-500KB copy fails and falls back to assets/ path.
-        val jniBinary: File? = nativeLibraryDir?.resolve(BINARY_NAME)
-            ?.takeIf { it.exists() && it.isFile && it.length() > 1_000_000 }
         val assetAvailable = try {
             context.assets.open(BINARY_NAME).close(); true
         } catch (_: Exception) {
             false
         }
-        AppLogger.i(TAG, "Binary sources: jniLibs=${jniBinary?.absolutePath} (exists=${jniBinary?.exists()}), assets=$assetAvailable")
+        val jniBinary: File? = nativeLibraryDir?.resolve(BINARY_NAME)
+            ?.takeIf { it.exists() && it.isFile && it.length() > 1_000_000 }
+        AppLogger.i(TAG, "Binary sources: assets=$assetAvailable (PREFERRED, upstream copy source); jniLibs=${jniBinary?.absolutePath} (exists=${jniBinary?.exists()} FALLBACK)")
+        // PREFER assets → filesDir. Fall back to jniLibs → filesDir if the
+        // assets entry was pruned. Both sources are valid size-checked.
         val copySource = when {
-            jniBinary != null -> {
-                AppLogger.i(TAG, "Binary copy source = jniLibs (preferred)")
-                "jni"
-            }
             assetAvailable -> {
-                AppLogger.i(TAG, "Binary copy source = assets (fallback)")
+                AppLogger.i(TAG, "Binary copy source = assets (PREFERRED / upstream default)")
                 "assets"
             }
+            jniBinary != null -> {
+                AppLogger.i(TAG, "Binary copy source = jniLibs (FALLBACK — assets entry empty/missing)")
+                "jni"
+            }
             else -> {
-                AppLogger.e(TAG, "FATAL: no binary source available! Need either jniLibs/$BINARY_NAME or assets/$BINARY_NAME packaged.")
+                AppLogger.e(TAG, "FATAL: no binary source! Need either jniLibs/$BINARY_NAME or assets/$BINARY_NAME packaged in APK.")
+                diagLine("FATAL: neither assets/$BINARY_NAME NOR jniLibs/$BINARY_NAME packaged. AI can never start — fix setup-from-badukai.sh P2 (keep jniLibs/libkatago.so).")
+                lastStartDiagnostic = diag.toString()
                 return@withContext false
             }
         }
-        val needCopy = when {
-            !filesDirBinary.exists() -> true
-            jniBinary != null -> filesDirBinary.length() != jniBinary.length()
-            else -> shouldUpdateBinary(filesDirBinary) // asset size compare fallback
-        }
+        val needCopy = !filesDirBinary.exists() ||
+                when (copySource) {
+                    "assets" -> shouldUpdateBinary(filesDirBinary) // asset lastModified / size compare
+                    "jni"    -> filesDirBinary.length() != jniBinary!!.length()
+                    else     -> true // should never reach
+                }
         if (needCopy) {
             when (copySource) {
-                "jni" -> {
+                "assets" -> {
+                    copyAssetToFile(BINARY_NAME, filesDirBinary)
+                    AppLogger.i(TAG, "Installed assets→filesDir binary: ${filesDirBinary.absolutePath} size=${filesDirBinary.length()}")
+                }
+                else -> {
                     jniBinary!!.inputStream().use { inp ->
                         java.io.FileOutputStream(filesDirBinary).use { out -> inp.copyTo(out) }
                     }
-                    AppLogger.i(TAG, "Installed jniLibs→filesDir binary: ${filesDirBinary.absolutePath} size=${filesDirBinary.length()}")
-                }
-                else -> {
-                    copyAssetToFile(BINARY_NAME, filesDirBinary)
-                    AppLogger.i(TAG, "Installed assets→filesDir binary: ${filesDirBinary.absolutePath} size=${filesDirBinary.length()}")
+                    AppLogger.i(TAG, "Installed jniLibs→filesDir binary (fallback): ${filesDirBinary.absolutePath} size=${filesDirBinary.length()}")
                 }
             }
             try { filesDirBinary.setExecutable(true, false) } catch (_: Exception) {}
@@ -481,13 +408,14 @@ class KataGoEngine(private val context: Context) {
         }
 
         // Also try chmod +x on nativeLibraryDir/libkatago.so as a DIRECT EXEC CANDIDATE
-        // (Plan 0 below: straight exec from OS-extracted location). This almost always
+        // (Plan 2 below: straight exec from OS-extracted location). This almost always
         // fails due to SELinux / nosuid / noexec on /data/app-lib, but cost is 1 syscall.
         if (jniBinary != null) {
             val ok = try { jniBinary.setExecutable(true, false) } catch (_: Exception) { false }
             AppLogger.i(TAG, "chmod +x jniLibs/$BINARY_NAME → $ok (direct exec candidate)")
         }
         diagLine("--- binary_install ---")
+        diagLine("  copySource=$copySource (PREFERRED=assets; FALLBACK=jni)")
         diagLine("  jniBinary.source=${jniBinary?.absolutePath ?: "NULL"}  size=${jniBinary?.length() ?: -1}")
         diagLine("  filesDirBinary=${filesDirBinary.absolutePath}  size=${filesDirBinary.length()}  exists=${filesDirBinary.isFile}")
         diagLine("  assetAvailable=$assetAvailable")
@@ -516,19 +444,24 @@ class KataGoEngine(private val context: Context) {
                 "/system/vendor/lib/rfsa/adsp",
                 "/dsp"
             ).joinToString(";"))
+            // HOME = filesDir (the /data/data/<pkg>/files version!) — KataGo writes
+            // OpenCL tuner cache + logs to $HOME/.katago/...; also matches upstream.
             put("HOME", filesDir.absolutePath)
         }
         AppLogger.i(TAG, "LD_LIBRARY_PATH = ${envBase["LD_LIBRARY_PATH"]}")
-        // 2026-08-02 HINT SUFFIX FIX: pass the .txt.gz hint file (effectiveModelFile)
-        // to KataGo, NOT the raw .bin storage path. KataGo's C++ main() uses the
-        // EXTENSION of the -model argument filename to pick gzip-vs-plaintext
-        // loader. If we passed .bin it picks plaintext and the 1f 8b gzip header
-        // is misinterpreted → main returns 0 immediately (server loop never starts).
-        val gtpArgs = listOf("gtp", "-model", effectiveModelFile.absolutePath, "-config", configFile.absolutePath)
+        AppLogger.i(TAG, "HOME = ${envBase["HOME"]}")
+        // 2026-08-02 FINAL ALIGNMENT WITH UPSTREAM:
+        //   - modelFile passed DIRECTLY as -model arg (name ends in .bin — BADUKAI
+        //     FORK NATIVE SUPPORT for .bin = gzip-compressed model; no alias layers)
+        //   - subcommand ("gtp") BEFORE -model/-config (KataGo CLI order matches
+        //     upstream: katago gtp -model M -config C)
+        val gtpArgs = listOf("gtp", "-model", modelFile.absolutePath, "-config", configFile.absolutePath)
         val linker64 = LINKER64_CANDIDATES.firstOrNull { File(it).exists() }
         AppLogger.i(TAG, "Detected linker64: ${linker64 ?: "NONE — linker64 plans skipped"}")
         diagLine("--- launch_env ---")
+        diagLine("  hardPkgPrefix enforced: ${filesDir.absolutePath.startsWith(hardPkgPrefix)} (must be true)")
         diagLine("  linker64 = ${linker64 ?: "NONE"}")
+        diagLine("  HOME = ${envBase["HOME"]}")
         diagLine("  LD_LIBRARY_PATH = ${envBase["LD_LIBRARY_PATH"]}")
         diagLine("  ADSP_LIBRARY_PATH = ${envBase["ADSP_LIBRARY_PATH"]}")
         diagLine("  gtpArgs  = ${gtpArgs.joinToString("  ")}")
@@ -550,16 +483,25 @@ class KataGoEngine(private val context: Context) {
             } ?: diagLine("  (none)")
 
         // ---- Build launch plan list ----------------------------------------------
-        // Try jniLibs direct locations FIRST, then filesDir copies, with & without
-        // linker64 interposer. Total 4–6 plans, with the "always worked" upstream
-        // equivalent (linker64 + jniLibs binary) tried BEFORE any filesDir copies.
+        // ★ ORDER: Put the ONE PLAN that upstream actually uses (linker64 +
+        // filesDirBinary) FIRST. That's the plan that ALWAYS worked in badukai
+        // original APK. All other plans are pure fallbacks (in case something weird
+        // happens with files/ permissions on a specific OEM ROM).
         val plans = mutableListOf<StartPlan>().apply {
-            if (jniBinary != null) {
-                if (linker64 != null) add(StartPlan("Plan A1: jniLibs binary via linker64 (upstream default)", jniBinary, true))
-                add(StartPlan("Plan A2: jniLibs binary direct (PIE exec)", jniBinary, false))
-            }
-            if (linker64 != null) add(StartPlan("Plan B1: filesDir binary via linker64", filesDirBinary, true))
-            add(StartPlan("Plan B2: filesDir binary direct (PIE exec)", filesDirBinary, false))
+            // Plan 0: UPSTREAM EXACTLY. linker64 + filesDir/libkatago.so (the
+            // assets→files copied binary, not jni). This works on every Android
+            // because:
+            //   - binary path under /data/data/PKG → patched memcmp passes
+            //   - working dir = hexagonDir (also under /data/data/PKG) → OK
+            //   - HOME = /data/data/PKG/files → OK
+            //   - LD_LIBRARY_PATH starts with nativeLibraryDir → all NEEDED deps resolve
+            if (linker64 != null) add(StartPlan("Plan 0 (UPSTREAM): linker64 + filesDir/libkatago.so (assets copy)", filesDirBinary, true))
+            // Fallback 1: jniLibs + linker64 (works if files/ is noexec for some reason)
+            if (jniBinary != null && linker64 != null) add(StartPlan("Plan 1 (FALLBACK): linker64 + jniLibs/libkatago.so", jniBinary, true))
+            // Fallback 2: direct filesDir exec (PIE)
+            add(StartPlan("Plan 2 (FALLBACK): filesDir/libkatago.so direct PIE exec", filesDirBinary, false))
+            // Fallback 3: direct jniLibs exec (PIE)
+            if (jniBinary != null) add(StartPlan("Plan 3 (FALLBACK): jniLibs/libkatago.so direct PIE exec", jniBinary, false))
         }.toList()
         AppLogger.i(TAG, "Engine start plans (in order, ${plans.size} total): ${plans.joinToString { it.label }}")
 
@@ -604,14 +546,14 @@ class KataGoEngine(private val context: Context) {
                     startReaderJob()
                     startErrorReaderJob()
                     AppLogger.i(TAG, "=== ENGINE STARTED SUCCESSFULLY via ${plan.label} ===")
-                    diagLine("  plan_status = OK (engine alive after 2s)")
+                    diagLine("  plan_status = OK (engine alive after grace window)")
                     lastStartDiagnostic = diag.appendLine("=== OUTCOME: SUCCESS via ${plan.label} ===").toString()
                     return@withContext true
                 }
                 is RunOnceOutcome.Dead -> {
                     lastFailureReason = "${plan.label} died: exit=${outcome.exitCode}; stderr-head=${outcome.stderrTail40.firstOrNull() ?: "(empty)"}"
                     AppLogger.e(TAG, "Plan $attempt/${plans.size} FAILED: ${plan.label}")
-                    diagLine("  plan_status = DIED within 2s")
+                    diagLine("  plan_status = DIED (process exited before grace window ended; exit=${outcome.exitCode})")
                     diagLine("  exit = ${outcome.exitCode}")
                     if (outcome.stderrTail40.isNotEmpty()) {
                         diagLine("  stderr-tail (last ${outcome.stderrTail40.size} lines):")
@@ -709,68 +651,80 @@ class KataGoEngine(private val context: Context) {
         envBase.forEach { (k, v) -> AppLogger.i(TAG, "  $k=$v") }
         AppLogger.i(TAG, "  Working dir=${workingDir.absolutePath}")
 
+        val startMs = System.currentTimeMillis()
         val p = builder.start()
         val w = BufferedWriter(OutputStreamWriter(p.outputStream))
         val r = BufferedReader(InputStreamReader(p.inputStream))
         val er = BufferedReader(InputStreamReader(p.errorStream))
 
-        // Drain immediate startup stderr (first 200ms) so dlopen/linker surface early
-        val startupErr = StringBuilder()
-        val startNs = System.nanoTime()
-        // Store last-40 stderr lines + last-20 stdout lines for diagnostic toast.
-        // These buffers are only consumed on the DIED path; if alive we don't read
-        // because the reader/errorReader coroutine jobs will own them.
-        val diagStderrBuf = mutableListOf<String>()
-        val diagStdoutBuf = mutableListOf<String>()
-        while (System.nanoTime() - startNs < 200_000_000L) {
-            if (!er.ready()) break
-            val line = er.readLine() ?: break
-            startupErr.append(line).append('\n')
-        }
-        if (startupErr.isNotEmpty()) {
-            AppLogger.e(TAG, "Startup stderr (first 200ms):\n$startupErr")
-        }
-
-        try { Thread.sleep(2000L) } catch (_: InterruptedException) {}
-        val alive = p.isAlive
-        val exitCode = try { p.exitValue() } catch (_: IllegalThreadStateException) { null }
-        AppLogger.i(TAG, "Process alive=$alive, exitCode=$exitCode")
-
-        if (!alive) {
-            // Process died within 2s → fully drain stderr/stdout into diagnostic
-            // buffers first, then log + feed to lastStartDiag upstream.
-            val errLines = mutableListOf<String>()
-            val outLines = mutableListOf<String>()
-            val errTailSb = StringBuilder()
-            runCatching {
-                repeat(80) {
-                    val ln = er.readLine() ?: return@repeat
-                    errLines += ln
-                    errTailSb.append(ln).append('\n')
-                    if (errLines.size > 80) errLines.removeAt(0)
-                }
+        // Use ready()-based draining ONLY so readLine() never blocks indefinitely on
+        // a slow-initializing process (SNPE DSP init can take 5-6s).
+        fun drainReadyLines(reader: BufferedReader, outBuf: MutableList<String>, maxCap: Int) {
+            var safety = maxCap * 4 // 4x lines safety in case some are empty
+            while (safety-- > 0) {
+                val ready = try { reader.ready() } catch (_: Exception) { false }
+                if (!ready) return
+                val line = try { reader.readLine() } catch (_: Exception) { null } ?: return
+                outBuf += line
+                if (outBuf.size > maxCap) outBuf.removeAt(0)
             }
-            runCatching {
-                repeat(40) {
-                    val ln = r.readLine() ?: return@repeat
-                    outLines += ln
-                    if (outLines.size > 40) outLines.removeAt(0)
-                }
-            }
-            val errTail = errTailSb.toString().trim()
-            val outTail = outLines.joinToString("\n").take(2000)
-            diagStderrBuf.clear(); diagStderrBuf.addAll(errLines.takeLast(40))
-            diagStdoutBuf.clear(); diagStdoutBuf.addAll(outLines.takeLast(20))
-            AppLogger.e(TAG, "Process died immediately! exit=$exitCode")
-            if (errTail.isNotBlank()) AppLogger.e(TAG, "Stderr full:\n$errTail")
-            if (outTail.isNotBlank()) AppLogger.e(TAG, "Stdout head:\n$outTail")
-            try { w.close() } catch (_: Exception) {}
-            try { r.close() } catch (_: Exception) {}
-            try { er.close() } catch (_: Exception) {}
-            try { p.destroyForcibly() } catch (_: Exception) {}
-            return RunOnceOutcome.Dead(exitCode, errLines.takeLast(40), outLines.takeLast(20))
         }
+        val diagStderrBuf = mutableListOf<String>() // cap=200
+        val diagStdoutBuf = mutableListOf<String>() // cap=100
 
+        // ---- Grace period: 7 seconds total, polling every 100ms. ----
+        //   UPSTREAM used delay(2000), but the first time Katago initializes SNPE
+        //   DSP acceleration it has to: dlopen libSnpeHtpPrepare 69MB, JIT-compile
+        //   DSP microcode for Hexagon v66-81, write cached artifacts to
+        //   $HOME/.katago/dsp_cache.bin, then openclDevice probe. This takes
+        //   5–6 seconds on a mid-range SoC. With only 2s grace we were killing a
+        //   PERFECTLY HEALTHY initializing process every single time, getting the
+        //   exact "exit=0 + empty stderr" pattern the user saw in 20+ builds.
+        //   7s = worst-case budget + 1s safety margin.
+        val graceMs = 7000L
+        val pollMs = 100L
+        val totalPolls = (graceMs / pollMs).toInt()
+        var alive = true
+        var exitCode: Int? = null
+        repeat(totalPolls) { pollIdx ->
+            // Drain ready stdout + stderr at every poll so we never miss slow
+            // incremental init output.
+            drainReadyLines(er, diagStderrBuf, 200)
+            drainReadyLines(r, diagStdoutBuf, 100)
+            // Check liveness every 100ms.
+            if (!p.isAlive) {
+                alive = false
+                exitCode = try { p.exitValue() } catch (_: IllegalThreadStateException) { null }
+                // Give the streams 25ms more to flush any pending final lines.
+                Thread.sleep(25L)
+                drainReadyLines(er, diagStderrBuf, 200)
+                drainReadyLines(r, diagStdoutBuf, 100)
+                // EOF marker: if streams closed properly, drain one last time.
+                runCatching { while (er.ready()) { val l = er.readLine() ?: break; diagStderrBuf+=l; if(diagStderrBuf.size>200) diagStderrBuf.removeAt(0) } }
+                runCatching { while (r.ready())  { val l = r.readLine()  ?: break; diagStdoutBuf+=l; if(diagStdoutBuf.size>100) diagStdoutBuf.removeAt(0) } }
+                // Final drain: try readLine with zero buffer:
+                runCatching {
+                    do {
+                        var any = false
+                        if (er.ready()) { val l = er.readLine(); if (l != null) { diagStderrBuf+=l; if(diagStderrBuf.size>200) diagStderrBuf.removeAt(0); any=true } }
+                        if (r.ready())  { val l = r.readLine();  if (l != null) { diagStdoutBuf+=l; if(diagStdoutBuf.size>100) diagStdoutBuf.removeAt(0); any=true } }
+                    } while (any)
+                }
+                val durMs = System.currentTimeMillis() - startMs
+                AppLogger.i(TAG, "Process DIED after ${durMs}ms (pollIdx=$pollIdx of $totalPolls), exitCode=$exitCode  stderrLines=${diagStderrBuf.size}  stdoutLines=${diagStdoutBuf.size}")
+                try { w.close() } catch (_: Exception) {}
+                try { r.close() } catch (_: Exception) {}
+                try { er.close() } catch (_: Exception) {}
+                try { p.destroyForcibly() } catch (_: Exception) {}
+                return RunOnceOutcome.Dead(exitCode, diagStderrBuf.takeLast(200), diagStdoutBuf.takeLast(100))
+            }
+            Thread.sleep(pollMs)
+        }
+        // ---- End of grace period: if we got here, process is STILL ALIVE. ----
+        val durMs = System.currentTimeMillis() - startMs
+        AppLogger.i(TAG, "Process ALIVE after $durMs ms (grace=$graceMs ms) — engine server loop started. stderrLines=${diagStderrBuf.size} stdoutLines=${diagStdoutBuf.size}")
+        // Do NOT close r/er/w: they are now owned by the reader coroutine jobs that
+        // will drive the GTP protocol long-term.
         return RunOnceOutcome.Alive(RunOnceResult(p, w, r, er))
     }
 
