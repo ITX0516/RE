@@ -19,45 +19,31 @@ import java.util.concurrent.atomic.AtomicBoolean
  * KataGo engine wrapper that handles communication with the native KataGo process
  * via GTP (Go Text Protocol).
  *
- * ENGINE START STRATEGY (2026-08-02 — shrink v2 + P3):
+ * ENGINE START STRATEGY (APK shrink v2 + Stage P3):
  *
- *   ZERO native libraries live in jniLibs/ (jniLibs is fully removed,
- *   android:extractNativeLibs="false" is now free because there is nothing to
- *   extract). Every native binary in the APK is under assets/:
+ * - jniLibs/ is COMPLETELY EMPTY (all native binaries moved to assets/).
+ * - android:extractNativeLibs="false" therefore costs nothing (nothing to extract).
+ * - First launch copies assets into filesDir and execs from there.
  *
- *   APK  assets/libkatago.so    (5.1MB, PIE executable)
- *        assets/deps/*.so       (1.2MB, 5 ld.so deps: libc++_shared,
- *                                 libcalculator, libffi, libmain, libcdsprpc)
- *                 │  first-launch copy (size-based update check)
- *                 ▼
- *   filesDir/libkatago.so    (app-private, exec always allowed)
- *   filesDir/libc++_shared.so
- *   filesDir/libcalculator.so
- *   filesDir/libffi.so
- *   filesDir/libmain.so
- *   filesDir/libcdsprpc.so
- *                 │  exec via one of two plans:
- *                 ├─ Plan 1 : /system/bin/linker64 filesDir/libkatago.so gtp ...
- *                 └─ Plan 2 : filesDir/libkatago.so gtp ...  (PIE binary direct)
- *                 ▲
- *   LD_LIBRARY_PATH = filesDir:filesDir/hexagon
- *        (ALL runtime deps resolved from filesDir — no /data/app-lib reference)
+ *   APK inside assets:
+ *     libkatago.so               (5.1MB, PIE executable)
+ *     deps/libc++_shared.so      (.9MB ld.so dep)
+ *     deps/libcalculator.so      (.2MB ld.so dep)
+ *     deps/libffi.so, deps/libmain.so, deps/libcdsprpc.so  (tiny)
  *
- *   Why this removes the LAST 1.2MB mattered:
- *     • Before P3, those 5 .so lived in jniLibs/ → system extracted copies to
- *       /data/app-lib ON INSTALL, costing 1.2MB. After P3, they sit compressed
- *       in assets/ (APK) and only get a single copy inside filesDir at runtime,
- *       at the same time as the engine binary.
- *     • More importantly: by EMPTYING jniLibs/ we can flip
- *       android:extractNativeLibs="false" WITHOUT any SELinux/noexec risk,
- *       because there's literally nothing the system could try to exec-in-place
- *       from the APK. All exec happens 100% inside filesDir/.
- *     • This also cuts the ~3-way "APK jniLibs store + /data/app-lib extract +
- *       filesDir copy" duplication down to exactly ONE filesDir copy for the
- *       entire native footprint.
+ *   At runtime these are copied to filesDir and launched via:
+ *     Plan A: /system/bin/linker64 filesDir/libkatago.so gtp ...
+ *     Plan B: filesDir/libkatago.so gtp ... directly
+ *   with LD_LIBRARY_PATH = filesDir (deps resolved from filesDir only).
  *
- *   Failure diagnostics: both engine stderr + linker64 logs are printed into logcat
- *   (dlopen / permission denied / missing .so / linker errors).
+ *   This eliminates the historical triple-duplication:
+ *     [jniLibs copy in APK]  +  [/data/app-lib system extract]  +  [filesDir copy]
+ *   down to a SINGLE filesDir copy for the entire native footprint, while also
+ *   removing any SELinux/noexec risk since jniLibs contains nothing the OS
+ *   could try to exec-in-place from the APK mount.
+ *
+ * Diagnostics: both engine stderr and linker64 output are forwarded to logcat
+ * (look for dlopen, permission-denied, missing-so, linker messages).
  */
 class KataGoEngine(private val context: Context) {
 
@@ -179,7 +165,8 @@ class KataGoEngine(private val context: Context) {
             AppLogger.i(TAG, "filesDir binary up-to-date: ${filesDirBinary.absolutePath} size=${filesDirBinary.length()}")
         }
 
-        // assets/deps/*.so → filesDir/*.so (KataGo child-process ld.so deps)
+        // Copy runtime loader deps from assets:deps to filesDir so
+        // KataGo child-process can resolve them via LD_LIBRARY_PATH.
         val depsAssetFiles: List<String> = try {
             context.assets.list("deps")?.filter { it.endsWith(".so") }?.toList() ?: emptyList()
         } catch (_: Exception) {
