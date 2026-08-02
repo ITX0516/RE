@@ -8,6 +8,18 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
+    <!--
+         HOTFIX 2026-08-02: Revert extractNativeLibs back to true.
+         On many devices, exec() of a lib that's mmapped-in-place from the APK
+         fails because the kernel page-guard blocks PROT_EXEC on APK-backed pages,
+         or the path is "noexec" mounted. Keeping this true means the system
+         extracts all .so to /data/app-lib ON INSTALL. Path A can then try to
+         exec those extracted copies directly; Path B always has the assets copy
+         as a final fallback.
+         Drawback: adds ~90MB installed footprint vs false.
+         We can flip this back to false AFTER verifying Path B fallback alone
+         works consistently on every target device (keeping Path B is the key).
+    -->
     <application
         android:name=".BadukNextApplication"
         android:allowBackup="true"
@@ -16,18 +28,6 @@
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.BadukNext"
-        <!--
-             HOTFIX 2026-08-02: Revert extractNativeLibs back to true.
-             On many devices, exec() of a lib that's mmapped-in-place from the APK
-             fails because the kernel page-guard blocks PROT_EXEC on APK-backed pages,
-             or the path is "noexec" mounted. Keeping this true means the system
-             extracts all .so to /data/app-lib ON INSTALL. Path A can then try to
-             exec those extracted copies directly; Path B always has the assets copy
-             as a final fallback.
-             Drawback: adds ~90MB installed footprint vs false.
-             We can flip this back to false AFTER verifying Path B fallback alone
-             works consistently on every target device (keeping Path B is the key).
-        -->
         android:extractNativeLibs="true"
         tools:targetApi="34">
 
