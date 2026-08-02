@@ -660,34 +660,56 @@ class GameViewModel : ViewModel() {
      * Heuristic ownership (Voronoi nearest-stone): +1 = black, -1 = white, 0 = neutral.
      * Matches the kata-analyze ownership format so BoardView can color territory.
      */
+    /**
+     * Territory ownership via flood-fill: an empty region enclosed only by black
+     * stones is black territory, only white is white territory, both = neutral.
+     * More accurate than nearest-stone Voronoi.
+     */
     private fun computeHeuristicOwnership(board: GoBoard): List<Float> {
         val size = board.size
-        val blackStones = mutableListOf<Point>()
-        val whiteStones = mutableListOf<Point>()
+        val ownership = MutableList(size * size) { 0f }
         for (y in 0 until size) for (x in 0 until size) {
             when (board.get(x, y)) {
-                Intersection.BLACK -> blackStones.add(Point(x, y))
-                Intersection.WHITE -> whiteStones.add(Point(x, y))
+                Intersection.BLACK -> ownership[y * size + x] = 1f
+                Intersection.WHITE -> ownership[y * size + x] = -1f
                 else -> {}
             }
         }
-        val ownership = MutableList(size * size) { 0f }
-        if (blackStones.isEmpty() && whiteStones.isEmpty()) return ownership
 
+        val visited = mutableSetOf<Point>()
         for (y in 0 until size) for (x in 0 until size) {
-            val idx = y * size + x
-            when (board.get(x, y)) {
-                Intersection.BLACK -> { ownership[idx] = 1f; continue }
-                Intersection.WHITE -> { ownership[idx] = -1f; continue }
-                else -> {}
+            val start = Point(x, y)
+            if (board.get(start) != Intersection.EMPTY || start in visited) continue
+
+            // Flood-fill the empty region
+            val region = mutableListOf<Point>()
+            val queue = ArrayDeque<Point>()
+            queue.add(start); visited.add(start)
+            var touchesBlack = false
+            var touchesWhite = false
+            while (queue.isNotEmpty()) {
+                val cur = queue.removeFirst()
+                region.add(cur)
+                listOf(
+                    Point(cur.x - 1, cur.y), Point(cur.x + 1, cur.y),
+                    Point(cur.x, cur.y - 1), Point(cur.x, cur.y + 1)
+                ).forEach { n ->
+                    if (n.x in 0 until size && n.y in 0 until size) {
+                        when (board.get(n)) {
+                            Intersection.EMPTY -> if (n !in visited) { visited.add(n); queue.add(n) }
+                            Intersection.BLACK -> touchesBlack = true
+                            Intersection.WHITE -> touchesWhite = true
+                            else -> {}
+                        }
+                    }
+                }
             }
-            val minB = blackStones.minOfOrNull { kotlin.math.abs(it.x - x) + kotlin.math.abs(it.y - y) } ?: 999
-            val minW = whiteStones.minOfOrNull { kotlin.math.abs(it.x - x) + kotlin.math.abs(it.y - y) } ?: 999
-            ownership[idx] = when {
-                minB < minW -> 1f
-                minW < minB -> -1f
+            val owner = when {
+                touchesBlack && !touchesWhite -> 1f
+                touchesWhite && !touchesBlack -> -1f
                 else -> 0f
             }
+            if (owner != 0f) for (q in region) ownership[q.y * size + q.x] = owner
         }
         return ownership
     }

@@ -58,11 +58,15 @@ object SgfUtil {
     /**
      * Parse an SGF string into a list of moves.
      */
+    /**
+     * Parse an SGF string into a list of moves.
+     * NOTE: regex-based — handles the main line only. Variations/comments with
+     * B[...]/W[...] tokens are ignored for now (acceptable for save/load of
+     * our own games, which have no variations).
+     */
     fun parseSgf(sgfText: String, boardSize: Int): List<Move> {
         val moves = mutableListOf<Move>()
-        var blackToPlay = true
         try {
-            // Extract all B[...] and W[...] tokens
             val regex = Regex("([BW])\\[([a-z]*)\\]")
             for (match in regex.findAll(sgfText)) {
                 val color = if (match.groupValues[1] == "B") StoneColor.BLACK else StoneColor.WHITE
@@ -71,11 +75,8 @@ object SgfUtil {
                     moves.add(Move.Pass(color))
                 } else {
                     val pt = sgfToPoint(coord, boardSize)
-                    if (pt != null) {
-                        moves.add(Move.Stone(pt, color))
-                    }
+                    if (pt != null) moves.add(Move.Stone(pt, color))
                 }
-                blackToPlay = !blackToPlay
             }
         } catch (e: Exception) {
             AppLogger.e(TAG, "SGF parse error", e)
