@@ -26,17 +26,15 @@ class MainActivity : ComponentActivity() {
         private const val TAG = "MainActivity"
     }
 
-    /**
-     * SAF ACTION_OPEN_DOCUMENT for custom KataGo weight files.
-     *
-     * MIME filter is intentionally permissive (*/* included) because most
-     * DocumentsProviders report "application/octet-stream" for .bin.gz /
-     * .txt.gz even when we want gzip. Real validation happens inside
-     * ModelManager.importCustomModel():
-     *   • size >= 1MB floor
-     *   • first two bytes == 0x1f 0x8b (gzip magic)
-     *   • failing both → refuse import with a clear error message.
-     */
+    // SAF ACTION_OPEN_DOCUMENT for custom KataGo weight files.
+    //
+    // MIME filter is intentionally permissive (catch-all MIME is also accepted)
+    // because most DocumentsProviders report application/octet-stream for
+    // .bin.gz / .txt.gz, so a strict application/gzip filter would miss them.
+    // Real validation happens inside ModelManager.importCustomModel():
+    //   - size >= 1MB floor
+    //   - first two bytes == 0x1f 0x8b (gzip magic)
+    //   - failing either -> refuse import with a clear error message.
     private val pickCustomModelLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             if (uri == null) {
