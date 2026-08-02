@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -76,6 +77,10 @@ fun GameScreen(
     onToggleEye: () -> Unit,
     onSetAiMoveTime: (Int) -> Unit,
     onSetAiCanResign: (Boolean) -> Unit,
+    onSaveSgf: () -> Unit,
+    onShowSavedGames: () -> Unit,
+    onDismissSavedGames: () -> Unit,
+    onLoadSgf: (String) -> Unit,
     onDismissCelebration: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -145,14 +150,31 @@ fun GameScreen(
                         Spacer(Modifier.width(4.dp))
                         Box(Modifier.size(12.dp).clip(CircleShape).background(colors.WhiteStone).then(Modifier.border(0.5.dp, colors.WhiteStoneBorder, CircleShape)))
                     }
-                    // Settings button — text, top-right
-                    Box(
-                        Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant)
-                            .clickable(onClick = onShowSettings)
-                            .padding(horizontal = 10.dp, vertical = 3.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("Settings", color = colors.TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Box(
+                            Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant)
+                                .clickable(onClick = onSaveSgf)
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Save", color = colors.TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        }
+                        Box(
+                            Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant)
+                                .clickable(onClick = onShowSavedGames)
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Load", color = colors.TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        }
+                        Box(
+                            Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant)
+                                .clickable(onClick = onShowSettings)
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Settings", color = colors.TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        }
                     }
                 }
             }
@@ -272,6 +294,13 @@ fun GameScreen(
             aiCanResign = state.aiCanResign,
             onSetAiMoveTime = onSetAiMoveTime,
             onSetAiCanResign = onSetAiCanResign
+        )
+    }
+    if (state.showSavedGamesDialog) {
+        SavedGamesDialog(
+            games = state.savedGames,
+            onDismiss = onDismissSavedGames,
+            onLoad = onLoadSgf
         )
     }
 
@@ -976,6 +1005,53 @@ private fun SettingsRadioOption(label: String, selected: Boolean, onClick: () ->
             Box(modifier = Modifier.size(16.dp).clip(CircleShape).border(if (selected) 5.dp else 1.5.dp, if (selected) colors.Accent else colors.TextSecondary, CircleShape))
             Spacer(Modifier.width(10.dp))
             Text(label, color = colors.TextPrimary, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+        }
+    }
+}
+
+@Composable
+private fun SavedGamesDialog(
+    games: List<Pair<String, String>>,
+    onDismiss: () -> Unit,
+    onLoad: (String) -> Unit
+) {
+    val colors = BadukNextColors
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(16.dp), color = colors.Surface, shadowElevation = 6.dp) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text("Saved Games", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.TextPrimary)
+                Spacer(Modifier.height(12.dp))
+                if (games.isEmpty()) {
+                    Text("No saved games yet", color = colors.TextSecondary, fontSize = 13.sp)
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState())
+                    ) {
+                        games.forEach { (name, path) ->
+                            Box(
+                                modifier = Modifier.fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(colors.SurfaceVariant)
+                                    .clickable { onLoad(path) }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                            ) {
+                                Text(name, color = colors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            }
+                            Spacer(Modifier.height(6.dp))
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                Box(
+                    modifier = Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp)).background(colors.Accent)
+                        .clickable(onClick = onDismiss)
+                        .padding(vertical = 11.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Close", color = colors.TextOnAccent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
     }
 }

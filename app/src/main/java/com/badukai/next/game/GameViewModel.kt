@@ -2,6 +2,7 @@ package com.badukai.next.game
 
 import android.content.Context
 import com.badukai.next.analysis.GameRecorder
+import java.io.File
 import com.badukai.next.analysis.RecordedMove
 import com.badukai.next.audio.StoneSoundPlayer
 import com.badukai.next.game.SettingsStore
@@ -81,7 +82,9 @@ data class GameState(
     val playedMovePoints: List<Pair<Int,Int>> = emptyList(),
     val moveQualities: List<Int> = emptyList(),
     val gameResult: GameResult? = null,
-    val analysisError: String = ""
+    val analysisError: String = "",
+    val showSavedGamesDialog: Boolean = false,
+    val savedGames: List<Pair<String, String>> = emptyList()
 )
 
 enum class GameResult(val label: String) {
@@ -96,6 +99,7 @@ class GameViewModel : ViewModel() {
 
     private var engine: KataGoEngine? = null
     private var soundPlayer: StoneSoundPlayer? = null
+    private var appContext: Context? = null
     lateinit var settingsStore: SettingsStore
     val recorder = GameRecorder()
 
@@ -103,6 +107,7 @@ class GameViewModel : ViewModel() {
     val state: StateFlow<GameState> = _state.asStateFlow()
 
     fun initialize(context: Context) {
+        appContext = context.applicationContext
         if (engine == null) {
             engine = KataGoEngine(context)
         }
@@ -895,6 +900,102 @@ class GameViewModel : ViewModel() {
     }
 
     fun getSoundPlayer(): StoneSoundPlayer? = soundPlayer
+
+    fun showSavedGamesDialog() {
+        _state.value = _state.value.copy(
+            showSavedGamesDialog = true,
+            savedGames = listSavedGames()
+        )
+    }
+    fun dismissSavedGamesDialog() {
+        _state.value = _state.value.copy(showSavedGamesDialog = false)
+    }
+    fun loadSavedGame(path: String) {
+        loadGameFromSgf(path)
+        dismissSavedGamesDialog()
+    }
+
+    // ── SGF import/export ──
+
+    /** Export current game to an SGF file in the app's external files dir. */
+    fun saveGameAsSgf(): String? {
+        val ctx = appContext ?: return null
+        val moves = recorder.getMoves()
+        if (moves.isEmpty()) return null
+        val sgf = com.badukai.next.sgf.SgfUtil.exportSgf(moves, _state.value.boardSize, _state.value.komi)
+        return try {
+            val dir = File(ctx.getExternalFilesDir(null), "games").apply { mkdirs() }
+            val time = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+            val file = File(dir, "game_$time.sgf")
+            file.writeText(sgf)
+            _state.value = _state.value.copy(gameMessage = "Saved: ${file.name}")
+            file.absolutePath
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "SGF save failed", e)
+            _state.value = _state.value.copy(gameMessage = "Save failed: ${e.message}")
+            null
+        }
+    }
+
+    /** List saved SGF games in the app's external files dir. */
+    fun listSavedGames(): List<Pair<String, String>> {
+        val ctx = appContext ?: return emptyList()
+        val dir = File(ctx.getExternalFilesDir(null), "games")
+        if (!dir.exists()) return emptyList()
+        return dir.listFiles()?.filter { it.isFile && it.name.endsWith(".sgf") }
+            ?.sortedByDescending { it.lastModified() }
+            ?.map { it.name to it.absolutePath }
+            ?: emptyList()
+    }
+
+    /** Load a saved SGF game into analysis mode. */
+    fun loadGameFromSgf(filePath: String) {
+        val ctx = appContext ?: return
+        val file = File(filePath)
+        if (!file.exists()) return
+        val text = file.readText()
+        loadSgfText(text)
+    }
+
+    /** Load SGF text into analysis mode (used for import and file load). */
+    fun loadSgfText(text: String) {
+        val s = _state.value
+        val moves = com.badukai.next.sgf.SgfUtil.parseSgf(text, s.boardSize)
+        if (moves.isEmpty()) {
+            _state.value = _state.value.copy(gameMessage = "No moves in SGF")
+            return
+        }
+        recorder.reset()
+        freeStoneColor = StoneColor.BLACK
+        val newBoard = GoBoard(s.boardSize)
+        for (m in moves) newBoard.playMove(m)
+        for (m in moves) recorder.recordMove(m)
+        _state.value = s.copy(
+            board = newBoard,
+            analysisMoves = recorder.rebuildAnalysisMoves(),
+            analysisMoveIndex = moves.size,
+            currentPlayer = moves.lastOrNull()?.let {
+                (it as? Move.Stone)?.color?.opposite() ?: StoneColor.BLACK
+            } ?: StoneColor.BLACK,
+            isPlayerTurn = false,
+            gameMode = GameMode.ANALYZE,
+            gameMessage = "Loaded ${moves.size} moves",
+            winrateHistory = emptyList(),
+            scoreLeadHistory = emptyList()
+        )
+        // Sync engine to this position
+        viewModelScope.launch {
+            engine?.setBoardSize(_state.value.boardSize)
+            engine?.clearBoard()
+            for (m in moves) {
+                if (m is Move.Stone) {
+                    engine?.playMove(m.color.toGtp(), com.badukai.next.sgf.SgfUtil.pointToSgf(m.point, _state.value.boardSize))
+                } else if (m is Move.Pass) {
+                    engine?.playMove(m.color.toGtp(), "pass")
+                }
+            }
+        }
+    }
 
     override fun onCleared() {
         super.onCleared()
