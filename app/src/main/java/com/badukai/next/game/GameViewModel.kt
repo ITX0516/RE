@@ -602,6 +602,70 @@ class GameViewModel : ViewModel() {
         _state.value = _state.value.copy(gameResult = null)
     }
 
+    /**
+     * Territory ownership via flood-fill: an empty region enclosed only by black
+     * stones is black territory, only white is white territory, both = neutral.
+     */
+    private fun computeHeuristicOwnership(board: GoBoard): List<Float> {
+        val size = board.size
+        val ownership = MutableList(size * size) { 0f }
+        for (y in 0 until size) for (x in 0 until size) {
+            when (board.get(x, y)) {
+                Intersection.BLACK -> ownership[y * size + x] = 1f
+                Intersection.WHITE -> ownership[y * size + x] = -1f
+                else -> {}
+            }
+        }
+
+        val visited = mutableSetOf<Point>()
+        for (y in 0 until size) for (x in 0 until size) {
+            val start = Point(x, y)
+            if (board.get(start) != Intersection.EMPTY || start in visited) continue
+
+            val region = mutableListOf<Point>()
+            val queue = ArrayDeque<Point>()
+            queue.add(start); visited.add(start)
+            var touchesBlack = false
+            var touchesWhite = false
+            while (queue.isNotEmpty()) {
+                val cur = queue.removeFirst()
+                region.add(cur)
+                listOf(
+                    Point(cur.x - 1, cur.y), Point(cur.x + 1, cur.y),
+                    Point(cur.x, cur.y - 1), Point(cur.x, cur.y + 1)
+                ).forEach { n ->
+                    if (n.x in 0 until size && n.y in 0 until size) {
+                        when (board.get(n)) {
+                            Intersection.EMPTY -> if (n !in visited) { visited.add(n); queue.add(n) }
+                            Intersection.BLACK -> touchesBlack = true
+                            Intersection.WHITE -> touchesWhite = true
+                            else -> {}
+                        }
+                    }
+                }
+            }
+            val owner = when {
+                touchesBlack && !touchesWhite -> 1f
+                touchesWhite && !touchesBlack -> -1f
+                else -> 0f
+            }
+            if (owner != 0f) for (q in region) ownership[q.y * size + q.x] = owner
+        }
+        return ownership
+    }
+
+    private fun countTerritoryFromOwnership(ownership: List<Float>, size: Int): Pair<Float, Float> {
+        var black = 0f
+        var white = 0f
+        for (i in 0 until size * size) {
+            when {
+                ownership.getOrElse(i) { 0f } > 0.5f -> black++
+                ownership.getOrElse(i) { 0f } < -0.5f -> white++
+            }
+        }
+        return Pair(black, white)
+    }
+
     fun toggleCoordinates() {
         val v = !_state.value.showCoordinates
         _state.value = _state.value.copy(showCoordinates = v)
