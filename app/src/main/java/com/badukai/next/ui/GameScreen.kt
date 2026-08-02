@@ -6,8 +6,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -82,16 +85,44 @@ fun GameScreen(
         ) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
                 // Line 1: status text + mode toggle
+                // 2026-08-02 DIAG EXPANSION: when gameMessage contains the
+                // diagnostic header ("=== AI START DIAGNOSTIC ===") we turn this
+                // row into a SCROLLABLE + SELECTABLE monospace block at 10sp with
+                // 220.dp max height. This is the root fix for the previous
+                // screenshot that truncated exactly at "jniBinary.source=..." so
+                // Plan A1..B2 stderr/stdout tails were never visible.
+                // Normal 'Ready' / 'Starting AI...' / 'AI thinking...' messages
+                // keep the original 1-line 14sp appearance.
+                val isDiagnostic = state.gameMessage.contains("=== AI START DIAGNOSTIC ===")
                 Row(
                     Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalAlignment = if (isDiagnostic) Alignment.Top else Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(
-                        state.gameMessage.ifEmpty { "Ready" },
-                        color = colors.TextPrimary, fontSize = 14.sp,
-                        modifier = Modifier.weight(1f)
-                    )
+                    if (isDiagnostic) {
+                        val scroll = rememberScrollState()
+                        SelectionContainer(
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 28.dp, max = 220.dp)
+                                .verticalScroll(scroll)
+                                .padding(end = 8.dp)
+                        ) {
+                            Text(
+                                text = state.gameMessage.ifEmpty { "Ready" },
+                                color = colors.TextPrimary,
+                                fontSize = 10.sp,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                lineHeight = 12.sp,
+                            )
+                        }
+                    } else {
+                        Text(
+                            state.gameMessage.ifEmpty { "Ready" },
+                            color = colors.TextPrimary, fontSize = 14.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                     Row(
                         Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant),
                         horizontalArrangement = Arrangement.SpaceEvenly

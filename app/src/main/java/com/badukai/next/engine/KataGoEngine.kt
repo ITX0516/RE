@@ -514,7 +514,50 @@ class KataGoEngine(private val context: Context) {
         AppLogger.e(TAG, "  • Common fails: 'Permission denied' (noexec on files/) → will need Plan adjustment")
         diagLine("=== OUTCOME: ALL ${plans.size} PLANS FAILED ===")
         lastFailureReason?.let { diagLine("final_reason = $it") }
-        lastStartDiagnostic = diag.toString()
+        val finalDiag = diag.toString()
+        lastStartDiagnostic = finalDiag
+
+        // 2026-08-02 DIAG TO EXTERNAL FILE (so user never has to scroll-screenshot
+        // the Compose top-bar). App already uses getExternalFilesDir() for SGF +
+        // logs (see AppLogger.initialize + GameViewModel.saveGame) so no new
+        // permissions needed. File is world-readable via MTP so user can:
+        //   1) plug USB → Android File Transfer → Internal storage
+        //        → Android/data/com.badukai.next/files/
+        //        → ai_last_fail_diag.txt  → send via IM/attach to issue
+        //   2) OR just long-press in 'Files' app.
+        // We write BOTH (a) latest (constant name, always overwritten) +
+        // (b) timestamped archive (user can attach the exact one). This gives us
+        // the Plan-level stderr/stdout tails we NEED without relying on a
+        // scroll-screenshot of a top-bar Text element.
+        runCatching {
+            val base: File? = context.getExternalFilesDir(null)
+                ?: context.filesDir
+            val dir = (base ?: context.filesDir).absoluteFile
+            dir.mkdirs()
+            val latest = File(dir, "ai_last_fail_diag.txt")
+            val ts = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+            val stamp = File(dir, "ai_fail_diag_$ts.txt")
+            val header = listOf(
+                "AI start failure diagnostic dump",
+                "UTC ms     : " + System.currentTimeMillis(),
+                "package    : " + context.packageName,
+                "modelPath  : " + modelFile.absolutePath + "  size=" + modelFile.length(),
+                "configPath : " + configFile.absolutePath + "  size=" + configFile.length(),
+                "",
+            ).joinToString("\n")
+            val body = header + finalDiag
+            latest.writeText(body)
+            stamp.writeText(body)
+            AppLogger.i(TAG, "DIAGFILE latest=${latest.absolutePath} archive=${stamp.absolutePath}  bytes=${latest.length()}")
+            // Embed file paths directly IN the toast text (above scroll cutoff) so
+            // user sees 'where to get the file' even if the scroll-screenshot is
+            // truncated again on the next run.
+            diag.insert(0, "[DIAGFILES written for next attempt]\n  latest=${latest.absolutePath}\n  archive=${stamp.absolutePath}\n\n")
+            lastStartDiagnostic = diag.toString()
+        }.onFailure { t ->
+            AppLogger.w(TAG, "DIAGFILE write failed (non-fatal, keep toast path only): ${t::class.java.simpleName} ${t.message}")
+        }
+
         false
     }
 
