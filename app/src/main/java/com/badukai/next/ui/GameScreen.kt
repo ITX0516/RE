@@ -74,6 +74,8 @@ fun GameScreen(
     onSetPlaceSound: (Int) -> Unit,
     onSetAnimation: (StoneAnimation) -> Unit,
     onToggleEye: () -> Unit,
+    onSetAiMoveTime: (Int) -> Unit,
+    onSetAiCanResign: (Boolean) -> Unit,
     onDismissCelebration: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -265,7 +267,11 @@ fun GameScreen(
             onSetPlacementMode = onSetPlacementMode,
             onSetPlaceSound = onSetPlaceSound,
             currentAnimation = state.stoneAnimation,
-            onSetAnimation = onSetAnimation
+            onSetAnimation = onSetAnimation,
+            aiMoveTimeSeconds = state.aiMoveTimeSeconds,
+            aiCanResign = state.aiCanResign,
+            onSetAiMoveTime = onSetAiMoveTime,
+            onSetAiCanResign = onSetAiCanResign
         )
     }
 
@@ -788,13 +794,17 @@ private fun SettingsDialog(
     currentPlacementMode: PlacementMode,
     currentAnimation: StoneAnimation,
     placeSoundIndex: Int,
+    aiMoveTimeSeconds: Int,
+    aiCanResign: Boolean,
     onDismiss: () -> Unit,
     onToggleCoordinates: () -> Unit,
     onToggleSound: () -> Unit,
     onSetTheme: (GameTheme) -> Unit,
     onSetPlacementMode: (PlacementMode) -> Unit,
     onSetAnimation: (StoneAnimation) -> Unit,
-    onSetPlaceSound: (Int) -> Unit
+    onSetPlaceSound: (Int) -> Unit,
+    onSetAiMoveTime: (Int) -> Unit,
+    onSetAiCanResign: (Boolean) -> Unit
 ) {
     val colors = BadukNextColors
     Dialog(onDismissRequest = onDismiss) {
@@ -858,6 +868,25 @@ private fun SettingsDialog(
                         )
                         Spacer(Modifier.height(4.dp))
                     }
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                // ── AI (collapsible) ──
+                CollapsibleSection(title = "AI", defaultExpanded = false) {
+                    Text("Move time (seconds)", fontSize = 12.sp, color = colors.TextSecondary)
+                    Spacer(Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                        Box(Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).clickable { onSetAiMoveTime(aiMoveTimeSeconds - 5) }.padding(horizontal = 12.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                            Text("\u2212", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Text("$aiMoveTimeSeconds", Modifier.width(50.dp), textAlign = TextAlign.Center, color = colors.TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Box(Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).clickable { onSetAiMoveTime(aiMoveTimeSeconds + 5) }.padding(horizontal = 12.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                            Text("+", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    ToggleRow("AI can resign", "Allow AI to resign when losing badly", aiCanResign, { onSetAiCanResign(!aiCanResign) })
                 }
 
                 Spacer(Modifier.height(10.dp))

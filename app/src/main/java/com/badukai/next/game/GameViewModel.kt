@@ -64,6 +64,8 @@ data class GameState(
     val confirmMoveQueued: Point? = null,
     val placeSoundIndex: Int = 0,
     val stoneAnimation: StoneAnimation = StoneAnimation.FADE_IN,
+    val aiMoveTimeSeconds: Int = 20,
+    val aiCanResign: Boolean = true,
     val handicap: Int = 0,
     val komi: Float = 7.5f,
     val showTerritoryDialog: Boolean = false,
@@ -118,7 +120,9 @@ class GameViewModel : ViewModel() {
                 currentTheme = s.currentTheme,
                 placementMode = s.placementMode,
                 placeSoundIndex = s.placeSoundIndex,
-                stoneAnimation = s.stoneAnimation
+                stoneAnimation = s.stoneAnimation,
+                aiMoveTimeSeconds = s.aiMoveTimeSeconds,
+                aiCanResign = s.aiCanResign
             )
             soundPlayer?.setPlaceSound(s.placeSoundIndex)
             BadukNextColors.setTheme(s.currentTheme)
@@ -143,6 +147,9 @@ class GameViewModel : ViewModel() {
                     engine.setBoardSize(_state.value.boardSize)
                     engine.clearBoard()
                     engine.setKomi(7.5f)
+                    // Apply AI speed + resign settings
+                    engine.sendCommand("time_settings ${_state.value.aiMoveTimeSeconds} 0 0")
+                    engine.sendCommand("kata-set-option allowResignation ${if (_state.value.aiCanResign) "true" else "false"}")
                     _state.value = _state.value.copy(
                         isEngineReady = true,
                         isEngineStarting = false,
@@ -417,14 +424,27 @@ class GameViewModel : ViewModel() {
                 if (s.board.isGameOver) handleGameEnd()
             }
             move.equals("resign", ignoreCase = true) -> {
-                val m = Move.Resign(color)
-                s.board.playMove(m)
-                recorder.recordMove(m)
-                _state.value = _state.value.copy(
-                    gameMessage = "AI resigned. You win!",
-                    analysisMoves = recorder.rebuildAnalysisMoves(),
-                    gameResult = GameResult.WIN
-                )
+                if (!s.aiCanResign) {
+                    // Resignation disabled — treat as pass
+                    val m = Move.Pass(color)
+                    s.board.playMove(m)
+                    recorder.recordMove(m)
+                    _state.value = _state.value.copy(
+                        currentPlayer = color.opposite(), isPlayerTurn = true,
+                        lastMovePoint = null, gameMessage = "AI passed. Your turn",
+                        analysisMoves = recorder.rebuildAnalysisMoves()
+                    )
+                    if (s.board.isGameOver) handleGameEnd()
+                } else {
+                    val m = Move.Resign(color)
+                    s.board.playMove(m)
+                    recorder.recordMove(m)
+                    _state.value = _state.value.copy(
+                        gameMessage = "AI resigned. You win!",
+                        analysisMoves = recorder.rebuildAnalysisMoves(),
+                        gameResult = GameResult.WIN
+                    )
+                }
             }
             else -> {
                 val pt = Point.fromGtp(move, s.boardSize)
@@ -695,6 +715,24 @@ class GameViewModel : ViewModel() {
     fun setPlacementMode(mode: PlacementMode) {
         _state.value = _state.value.copy(placementMode = mode, pendingTap = null, doubleTapActive = false, confirmMoveQueued = null)
         if (::settingsStore.isInitialized) settingsStore.placementMode = mode
+    }
+    fun setAiMoveTime(seconds: Int) {
+        val v = seconds.coerceIn(1, 120)
+        _state.value = _state.value.copy(aiMoveTimeSeconds = v)
+        if (::settingsStore.isInitialized) settingsStore.aiMoveTimeSeconds = v
+        applyAiMoveTime(v)
+    }
+    fun setAiCanResign(can: Boolean) {
+        _state.value = _state.value.copy(aiCanResign = can)
+        if (::settingsStore.isInitialized) settingsStore.aiCanResign = can
+        viewModelScope.launch {
+            engine?.sendCommand("kata-set-option allowResignation ${if (can) "true" else "false"}")
+        }
+    }
+    private fun applyAiMoveTime(seconds: Int) {
+        viewModelScope.launch {
+            engine?.sendCommand("time_settings $seconds 0 0")
+        }
     }
 
     fun setGameMode(mode: GameMode) {

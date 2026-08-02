@@ -39,4 +39,12 @@ class SettingsStore(context: Context) {
         get() = try { StoneAnimation.valueOf(prefs.getString("stone_animation", StoneAnimation.FADE_IN.name) ?: StoneAnimation.FADE_IN.name) }
         catch (_: Exception) { StoneAnimation.FADE_IN }
         set(v) = prefs.edit().putString("stone_animation", v.name).apply()
+
+    var aiMoveTimeSeconds: Int
+        get() = prefs.getInt("ai_move_time_seconds", 20)
+        set(v) = prefs.edit().putInt("ai_move_time_seconds", v).apply()
+
+    var aiCanResign: Boolean
+        get() = prefs.getBoolean("ai_can_resign", true)
+        set(v) = prefs.edit().putBoolean("ai_can_resign", v).apply()
 }

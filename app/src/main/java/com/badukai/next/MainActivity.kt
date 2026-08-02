@@ -48,6 +48,8 @@ class MainActivity : ComponentActivity() {
                 onSetPlacementMode = viewModel::setPlacementMode,
                 onSetAnimation = viewModel::setStoneAnimation,
                 onToggleEye = viewModel::toggleEyeOverlay,
+                onSetAiMoveTime = viewModel::setAiMoveTime,
+                onSetAiCanResign = viewModel::setAiCanResign,
                 onDismissCelebration = viewModel::dismissCelebration,
                 onAnalysisPrev = viewModel::analysisPrev,
                 onAnalysisNext = viewModel::analysisNext,
