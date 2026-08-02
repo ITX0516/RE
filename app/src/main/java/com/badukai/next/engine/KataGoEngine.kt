@@ -140,16 +140,50 @@ class KataGoEngine(private val context: Context) {
         AppLogger.i(TAG, "Preparing model: source=$source customSet=${!customStoredPath.isNullOrBlank()}")
         val modelFile: File = when (source) {
             ModelSource.BUNDLED_ASSET -> {
+                // 2026-08-02 AI-START BUG FIX — always use the absolute path that
+                // ensureBundledCopied actually wrote to disk (the only thing we
+                // 100% know exists + is valid). NEVER call bundledFile(context)
+                // here — it defaults to preferPlaintext=false and returns a
+                // .txt.gz name that may NOT exist if the APK shipped the .bin
+                // renamed form OR the aapt2-expanded .txt form. That mismatched
+                // filename caused every real device install to fail preflight
+                // with "modelFile missing/unreadable" → the user-visible toast.
                 val prepared = ModelManager.ensureBundledCopied(context)
                 if (prepared.isFailure) {
                     AppLogger.e(TAG, "BUNDLED_ASSET ensureBundledCopied failed: ${prepared.exceptionOrNull()?.message}")
                     return@withContext false
                 }
+                val actual = File(prepared.getOrThrow())
+                // validateOrDelete is belt-and-suspenders (it uses
+                // resolveModelFile tie-break and handles corrupt cached copies
+                // from previous broken builds). After that passes we still use
+                // the *actual* path from ensureBundledCopied, not the guess from
+                // resolveModelFile.
                 if (!ModelManager.validateOrDelete(context, ModelSource.BUNDLED_ASSET, null)) {
-                    AppLogger.e(TAG, "BUNDLED_ASSET validation FAILED even after copy — APK missing assets/models entry?")
-                    return@withContext false
+                    // validateOrDelete may have deleted a corrupt cached copy.
+                    // Re-run ensureBundledCopied once more — it will re-copy
+                    // from APK assets. If THAT also fails, give up.
+                    val retry = ModelManager.ensureBundledCopied(context)
+                    if (retry.isFailure) {
+                        AppLogger.e(TAG, "BUNDLED_ASSET validation FAILED after re-copy — APK missing assets/models entry?")
+                        return@withContext false
+                    }
+                    val again = File(retry.getOrThrow())
+                    if (!again.exists() || !ModelManager.isValidModelFile(again)) {
+                        AppLogger.e(TAG, "BUNDLED_ASSET still INVALID after retry copy: path=${again.absolutePath} size=${again.length()}")
+                        return@withContext false
+                    }
+                    again
+                } else {
+                    // validateOrDelete passed; ensure the *actual* file we copied
+                    // is still readable before we hand it to libkatago.
+                    if (!actual.isFile || !actual.canRead() || !ModelManager.isValidModelFile(actual)) {
+                        AppLogger.w(TAG, "BUNDLED_ASSET validateOrDelete passed but actual copied file bad — path=${actual.absolutePath} size=${actual.length()}. Falling back to resolveModelFile tie-break.")
+                        ModelManager.resolveModelFile(context, ModelSource.BUNDLED_ASSET, null)
+                    } else {
+                        actual
+                    }
                 }
-                ModelManager.bundledFile(context)
             }
             ModelSource.DOWNLOADED -> {
                 if (!ModelManager.validateOrDelete(context, ModelSource.DOWNLOADED, null)) {

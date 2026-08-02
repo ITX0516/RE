@@ -66,9 +66,21 @@ object ModelManager {
     // APK was built) the assets/ tree contains this .txt file instead.
     private const val MODEL_FILENAME_TXT = "kata1-b6c96-s175395328-d26788732.txt"
 
+    // 2026-08-02 AAPT2 WORKAROUND — rename the 6b gzip model to *.bin at build
+    // time so that the built-in aapt2 ".gz special-case decompressor" can NEVER
+    // silently turn 4.97MB .txt.gz into 12.4MB plaintext .txt inside the APK
+    // (which made noCompress+=gz useless because the entry suffix was already
+    // .txt by the time aapt2 ran its noCompress filter). *.bin has an explicit
+    // entry in aaptOptions.noCompress so it always stays STORED in the APK
+    // and the byte-for-byte gzip payload (1f 8b magic, 4,967,720 bytes) is
+    // exactly what ModelManager/validator/libkatago expects.
+    const val MODEL_FILENAME_BIN = "kata1-b6c96-s175395328-d26788732.bin"
+
     const val MODEL_DISPLAY_NAME = "6b"
 
-    /** Preferred bundled asset entry (gzip). */
+    /** Preferred bundled asset entry (post-build renamed *.bin form, 4.97MB STORED gzip). */
+    private const val BUNDLED_ASSET_PATH_BIN = "models/$MODEL_FILENAME_BIN"
+    /** Bundled asset entry (gzip). Fallback when build renaming step was ever skipped. */
     private const val BUNDLED_ASSET_PATH_GZ = "models/$MODEL_FILENAME"
     /** Fallback bundled asset entry (decompressed plaintext). */
     private const val BUNDLED_ASSET_PATH_TXT = "models/$MODEL_FILENAME_TXT"
@@ -121,6 +133,10 @@ object ModelManager {
         return if (preferPlaintext) File(dir, MODEL_FILENAME_TXT) else File(dir, MODEL_FILENAME)
     }
 
+    /** BUNDLED_ASSET *.bin renamed form (post-build aapt2 workaround). */
+    fun bundledBinFile(context: Context): File =
+        File(File(getModelsDir(context), ASSET_COPY_DIR_NAME), MODEL_FILENAME_BIN)
+
     /** CUSTOM: filesDir/models/custom/ — app-private stable copies */
     fun customDir(context: Context): File =
         File(getModelsDir(context), CUSTOM_DIR_NAME).also { it.mkdirs() }
@@ -138,14 +154,20 @@ object ModelManager {
         customStoredPath: String?
     ): File = when (source) {
         ModelSource.BUNDLED_ASSET -> {
+            // 2026-08-02 Tie-break order:
+            //   1) *.bin renamed aapt2-workaround form (preferred after F2 fix)
+            //   2) *.txt.gz legacy gzip form
+            //   3) *.txt   aapt2-auto-decompressed plaintext form
+            // The "else" branch (none found) falls back to *.bin — after we
+            // ship the F2 fix that's the only form that will ever be built.
+            val bin = bundledBinFile(context)
             val gz = bundledFile(context, preferPlaintext = false)
             val txt = bundledFile(context, preferPlaintext = true)
-            // Whichever one exists on disk after ensureBundledCopied wins.
-            // Tie-break if neither exists (caller will then run ensureBundledCopied):
             when {
-                gz.exists() && isValidModelFile(gz)  -> gz
+                bin.exists() && isValidModelFile(bin) -> bin
+                gz.exists()  && isValidModelFile(gz)  -> gz
                 txt.exists() && isValidModelFile(txt) -> txt
-                else -> gz
+                else -> bin
             }
         }
         ModelSource.DOWNLOADED -> downloadedFile(context)
@@ -251,16 +273,32 @@ object ModelManager {
     // ------------------------------------------------------------------
 
     // Which asset form should we copy out of the APK?
-    private enum class BundledAssetForm(val assetPath: String, val expectedBytes: Long, val preferPlaintext: Boolean) {
-        GZ(BUNDLED_ASSET_PATH_GZ, EXPECTED_6B_GZ_BYTES, preferPlaintext = false),
-        TXT(BUNDLED_ASSET_PATH_TXT, EXPECTED_6B_TXT_BYTES, preferPlaintext = true)
+    //
+    //   BIN is a renamed *.gz (identical gzip byte-for-byte payload, 4.97MB).
+    //   It's the only form in APKs built after the 2026-08-02 aapt2 workaround.
+    //   GZ and TXT are fallbacks so old/unrebuilt APK variants still boot.
+    private enum class BundledAssetForm(
+        val assetPath: String,
+        val expectedBytes: Long,
+        val targetFactory: (Context) -> File
+    ) {
+        BIN(BUNDLED_ASSET_PATH_BIN, EXPECTED_6B_GZ_BYTES, { ctx -> bundledBinFile(ctx) }),
+        GZ(BUNDLED_ASSET_PATH_GZ,  EXPECTED_6B_GZ_BYTES,  { ctx -> bundledFile(ctx, preferPlaintext = false) }),
+        TXT(BUNDLED_ASSET_PATH_TXT, EXPECTED_6B_TXT_BYTES, { ctx -> bundledFile(ctx, preferPlaintext = true) })
     }
 
     private fun detectBundledAssetForm(am: android.content.res.AssetManager): BundledAssetForm? {
+        // 1) BIN (renamed aapt2-workaround) — highest priority
+        val binListed = runCatching { am.list("models")?.contains(MODEL_FILENAME_BIN) }.getOrNull() == true
+        val binOpen   = runCatching { am.open(BUNDLED_ASSET_PATH_BIN).use { true } }.getOrDefault(false)
+        if (binListed || binOpen) return BundledAssetForm.BIN
+
+        // 2) GZ (legacy gzip form)
         val gzListed = runCatching { am.list("models")?.contains(MODEL_FILENAME) }.getOrNull() == true
         val gzOpen   = runCatching { am.open(BUNDLED_ASSET_PATH_GZ).use { true } }.getOrDefault(false)
         if (gzListed || gzOpen) return BundledAssetForm.GZ
 
+        // 3) TXT (aapt2 accidentally decompressed during packaging — rare)
         val txtListed = runCatching { am.list("models")?.contains(MODEL_FILENAME_TXT) }.getOrNull() == true
         val txtOpen   = runCatching { am.open(BUNDLED_ASSET_PATH_TXT).use { true } }.getOrDefault(false)
         if (txtListed || txtOpen) return BundledAssetForm.TXT
@@ -274,12 +312,13 @@ object ModelManager {
             val form = detectBundledAssetForm(am)
                 ?: return@withContext Result.failure(IllegalStateException(
                     "Bundled 6b weights missing from APK assets. " +
-                        "Expected models/$MODEL_FILENAME (gz, ${EXPECTED_6B_GZ_BYTES}B) " +
+                        "Expected models/$MODEL_FILENAME_BIN (bin, ${EXPECTED_6B_GZ_BYTES}B — post-aapt2-workaround form) " +
+                        "OR models/$MODEL_FILENAME (gz, ${EXPECTED_6B_GZ_BYTES}B) " +
                         "OR models/$MODEL_FILENAME_TXT (txt, ${EXPECTED_6B_TXT_BYTES}B)."
                 ))
 
             // Fast-path: a cached copy on disk already matches this form & is valid.
-            val target = bundledFile(context, form.preferPlaintext)
+            val target = form.targetFactory(context)
             if (target.exists() && target.length() == form.expectedBytes && isValidModelFile(target)) {
                 AppLogger.i(TAG, "ensureBundledCopied($form): cached copy present, skip copy. path=${target.absolutePath}")
                 return@withContext Result.success(target.absolutePath)
@@ -296,6 +335,10 @@ object ModelManager {
 
             // Approximate size check + full validation.
             val sizeOk = when (form) {
+                // BIN is byte-for-byte identical to GZ (just a renamed copy to
+                // defeat aapt2's overzealous gz decompressor). Use the same
+                // min/max bounds as the legacy GZ form.
+                BundledAssetForm.BIN -> written >= EXPECTED_6B_GZ_MIN  && written <= form.expectedBytes + 8192
                 BundledAssetForm.GZ  -> written >= EXPECTED_6B_GZ_MIN  && written <= form.expectedBytes + 8192
                 BundledAssetForm.TXT -> written >= EXPECTED_6B_TXT_MIN && written <= form.expectedBytes + 8192
             }

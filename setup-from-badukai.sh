@@ -231,9 +231,27 @@ echo "  (no-op: keeping jniLibs/arm64-v8a/*.so in place)"
 #            that isn't our 6b baseline (either .txt.gz OR .txt —
 #            aapt2 sometimes decompresses gz entries during
 #            packaging so both forms can exist).
+#
+# 2026-08-02 AAPT2 WORKAROUND — after pruning we NORMALIZE the
+#   shipped 6b form to a single file named:
+#     kata1-b6c96-s175395328-d26788732.bin
+#   Why? Because aapt2 has a hard-coded "if entry suffix == .gz
+#   then inflate it during packaging" behaviour that ignores our
+#   aaptOptions.noCompress+=gz half the time and silently rewrites
+#   the entry to .txt (12.4MB instead of 4.97MB). *.bin is already
+#   in aaptOptions.noCompress and aapt2 has no special case for it,
+#   so the byte-for-byte identical gzip payload stays STORED at
+#   exactly 4,967,720 bytes. ModelManager probes for the *.bin form
+#   first (highest priority), then falls back to *.gz / *.txt so
+#   older builds still work. Rules:
+#     - if we have .txt.gz (4.97MB): mv directly to .bin
+#     - if we have .txt    (12.4MB): gzip -9 to .gz then mv .gz → .bin
+#   After normalize the directory contains EXACTLY ONE 6b entry
+#   (.bin) and nothing else.
 # ================================================================
-stage P4 "PRUNE assets/models to ONLY 6b (user-requested bundled weight; 10b is dead weight)"
+stage P4 "PRUNE assets/models to ONLY 6b + RENAME to .bin (aapt2 gz-decompress workaround)"
 MODELS_DIR="$DST_APP/assets/models"
+SHIPPED_BIN="kata1-b6c96-s175395328-d26788732.bin"
 if [ -d "$MODELS_DIR" ]; then
     # Acceptable names for the shipped 6b net (gz form + plaintext form).
     keep_gz="kata1-b6c96-s175395328-d26788732.txt.gz"
@@ -242,7 +260,7 @@ if [ -d "$MODELS_DIR" ]; then
     removed=0
     ( cd "$MODELS_DIR" && find . -maxdepth 1 -type f -print0 | while IFS= read -r -d '' f; do
         name="${f#./}"
-        if [ "$name" = "$keep_gz" ] || [ "$name" = "$keep_txt" ]; then
+        if [ "$name" = "$keep_gz" ] || [ "$name" = "$keep_txt" ] || [ "$name" = "$SHIPPED_BIN" ]; then
             sz=$(stat -c '%s' "$name" 2>/dev/null || echo 0)
             echo "  KEEP $name ($sz bytes)"
             kept=$((kept+1))
@@ -252,7 +270,37 @@ if [ -d "$MODELS_DIR" ]; then
             echo "  REMOVE $name ($sz bytes — not 6b shipped baseline)"
             removed=$((removed+1))
         fi
-    done ; echo "  Summary P4: assets/models kept=$kept removed=$removed" )
+    done ; echo "  Summary P4 (prune): assets/models kept=$kept removed=$removed" )
+
+    # ---------- NORMALIZE → single .bin entry (aapt2 workaround) ----------
+    ( cd "$MODELS_DIR" && \
+      has_bin=0; has_gz=0; has_txt=0
+      [ -f "$SHIPPED_BIN" ] && has_bin=1
+      [ -f "$keep_gz"    ] && has_gz=1
+      [ -f "$keep_txt"   ] && has_txt=1
+      echo "  P4 normalize: before state — bin=$has_bin gz=$has_gz txt=$has_txt"
+
+      if [ "$has_bin" -eq 0 ]; then
+          if   [ "$has_gz"  -eq 1 ]; then
+              echo "  NORMALIZE mv $keep_gz -> $SHIPPED_BIN (identical gzip byte payload, rename defeats aapt2 .gz handler)"
+              mv -v  "$keep_gz" "$SHIPPED_BIN"
+          elif [ "$has_txt" -eq 1 ]; then
+              echo "  NORMALIZE $keep_txt (plaintext 12.4MB) -> gzip -9 -> $SHIPPED_BIN (≈4.97MB STORED gz, aapt2 safe)"
+              gzip -9 -c "$keep_txt" > "$SHIPPED_BIN.tmpgz" && mv -v "$SHIPPED_BIN.tmpgz" "$SHIPPED_BIN" && rm -fv "$keep_txt"
+          else
+              echo "  NORMALIZE SKIP: no gz/txt/bin form present in $MODELS_DIR (this will fail later — ensure upstream sync actually copied the 6b weights)"
+          fi
+      else
+          echo "  NORMALIZE SKIP: $SHIPPED_BIN already present and is canonical shipped form"
+      fi
+
+      # Cleanup any leftover gz/txt — canonical form is .bin only.
+      [ -f "$keep_gz" ] && { echo "  CLEANUP removing $keep_gz (canonical form is $SHIPPED_BIN now)" ; rm -fv "$keep_gz" ; }
+      [ -f "$keep_txt" ] && { echo "  CLEANUP removing $keep_txt (canonical form is $SHIPPED_BIN now)" ; rm -fv "$keep_txt" ; }
+
+      echo "  P4 normalize final assets/models:"
+      find . -maxdepth 1 -type f -printf '  %12s %f\n' 2>/dev/null || true
+    )
 fi
 
 echo ""
