@@ -202,7 +202,7 @@ fun GoBoard(
 
 // ── Territory overlay ──
 private fun DrawScope.drawTerritory(boardSize: Int, padding: Float, cellSize: Float, ownership: List<Float>) {
-    val sqSize = cellSize * 0.3f
+    val sqSize = cellSize * 0.42f
 
     for (y in 0 until boardSize) {
         for (x in 0 until boardSize) {
@@ -216,14 +216,14 @@ private fun DrawScope.drawTerritory(boardSize: Int, padding: Float, cellSize: Fl
             if (val_ > 0.15f) {
                 // Black territory — dark square
                 drawRect(
-                    color = BadukNextColors.BlackStone.copy(alpha = 0.35f),
+                    color = BadukNextColors.BlackStone.copy(alpha = 0.50f),
                     topLeft = Offset(cx - sqSize / 2, cy - sqSize / 2),
                     size = androidx.compose.ui.geometry.Size(sqSize, sqSize)
                 )
             } else if (val_ < -0.15f) {
                 // White territory — light square with border
                 drawRect(
-                    color = BadukNextColors.WhiteStone.copy(alpha = 0.50f),
+                    color = BadukNextColors.WhiteStone.copy(alpha = 0.65f),
                     topLeft = Offset(cx - sqSize / 2, cy - sqSize / 2),
                     size = androidx.compose.ui.geometry.Size(sqSize, sqSize)
                 )

@@ -153,8 +153,7 @@ class GameViewModel : ViewModel() {
                     engine.clearBoard()
                     engine.setKomi(7.5f)
                     // Apply AI speed + resign settings
-                    engine.sendCommand("time_settings ${_state.value.aiMoveTimeSeconds} 0 0")
-                    engine.sendCommand("kata-set-option allowResignation ${if (_state.value.aiCanResign) "true" else "false"}")
+                    engine.sendCommand("time_settings 0 ${_state.value.aiMoveTimeSeconds} 1")
                     _state.value = _state.value.copy(
                         isEngineReady = true,
                         isEngineStarting = false,
@@ -702,14 +701,12 @@ class GameViewModel : ViewModel() {
     fun setAiCanResign(can: Boolean) {
         _state.value = _state.value.copy(aiCanResign = can)
         if (::settingsStore.isInitialized) settingsStore.aiCanResign = can
-        viewModelScope.launch {
-            engine?.sendCommand("kata-set-option allowResignation ${if (can) "true" else "false"}")
-        }
+        // Resignation handled in-app (handleAiMove treats AI resign as pass when disabled)
     }
     private fun applyAiMoveTime(seconds: Int) {
         viewModelScope.launch {
-            // kata-set-option maxTime actually caps per-move search time (seconds)
-            engine?.sendCommand("kata-set-option maxTime $seconds")
+            // Canadian byo-yomi: N seconds per move (verified working on KataGo)
+            engine?.sendCommand("time_settings 0 $seconds 1")
         }
     }
 
@@ -818,8 +815,7 @@ class GameViewModel : ViewModel() {
             engine?.setBoardSize(boardSize)
             engine?.clearBoard()
             engine?.setKomi(komi)
-            engine?.sendCommand("kata-set-option maxTime $aiTime")
-            engine?.sendCommand("kata-set-option allowResignation ${if (aiCanResign) "true" else "false"}")
+            engine?.sendCommand("time_settings 0 $aiTime 1")
 
             if (realHandicap > 0) {
                 // Place handicap stones via GTP
