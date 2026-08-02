@@ -28,6 +28,10 @@
 
 set -euo pipefail
 
+# ---- helper functions — MUST be defined BEFORE first stage() call (line 111) ----
+stage()  { printf '\n--- Stage %s: %s ---\n' "$1" "$2"; }
+prune() { rm -fv "$@" || true; }
+
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BADUKAI_DIR="${1:-${BADUKAI_DIR:-}}"
 
@@ -130,10 +134,6 @@ copy_dir "$SRC_APP/jniLibs/arm64-v8a"       "$DST_APP/jniLibs/arm64-v8a"
 
 echo ""
 echo "==> PRUNING (shrink v2 — multi-stage, belt & suspenders)"
-
-stage()  { printf '\n--- Stage %s: %s ---\n' "$1" "$2"; }
-
-prune() { rm -fv "$@" || true; }
 
 # ================================================================
 # Stage P0-a — KataGo mutually exclusive variant builds
