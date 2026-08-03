@@ -125,8 +125,8 @@ fun GameScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // ────────────────────────────────────────────────────────
-            // LINE 1: Action bar — 5个文字按钮（不搞图标）+ 对弈/分析胶囊
-            // 高度压缩到 46dp，比原来的54dp小，防止挤
+            // LINE 1: 顶栏（原版3个GlassPill：新对局/设置/SGF）+ 对弈/分析分段胶囊
+            //         = 3个功能按钮 + 1个分段；按钮数量严格=3（底部再加5个=8个）
             // ────────────────────────────────────────────────────────
             val isDiagnostic = state.gameMessage.contains("=== AI START DIAGNOSTIC ===")
             if (isDiagnostic) {
@@ -150,7 +150,7 @@ fun GameScreen(
                             text = state.gameMessage,
                             color = colors.TextPrimary,
                             fontSize = 10.sp,
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            fontFamily = FontFamily.Monospace,
                             lineHeight = 12.sp,
                         )
                     }
@@ -162,30 +162,16 @@ fun GameScreen(
                         .padding(horizontal = 8.dp, vertical = 2.dp)
                         .height(46.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    listOf("设" to onShowSettings, "读" to onShowSavedGames,
-                           "存" to onSaveSgf, "享" to {}, "关" to {}
-                    ).forEach { (label, cb) ->
-                        Box(
-                            Modifier
-                                .height(40.dp)
-                                .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(colors.GlassFill.copy(alpha = 0.3f))
-                                .border(0.5.dp, colors.GlassEdge.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                                .clickable(onClick = cb),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                label,
-                                color = colors.TextPrimary,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                    // 对弈 / 分析 胶囊（用户原图最右侧）
+                    // 原版 3 GlassPills：➕ 新对局 / ⚙ 设置 / SGF
+                    GlassPill("➕ 新对局", onClick = onNewGame)
+                    GlassPill("⚙ 设置", onClick = onShowSettings)
+                    GlassPill("SGF", onClick = onSaveSgf, accentRim = true)
+
+                    Spacer(Modifier.weight(1f))
+
+                    // 对弈 / 分析 分段胶囊（用户截图最右侧，明确有这个）
                     Row(
                         Modifier
                             .height(38.dp)
@@ -356,22 +342,27 @@ fun GameScreen(
             }
 
             // ════════════════════════════════════════════════════════
-            // FOOTER：3 Tab + 面板 + 1行7个按钮（原版只有1行，不是2行！）
+            // FOOTER：AnalysisFooter（3 Tab + 100dp 面板，纯nav+charts，不含按钮）
+            // 然后是原版 PlayButtonRow 5 个 GlassIconBtn = 底部5个
+            // 按钮总数：顶栏 3（新对局/设置/SGF） + 底部 5（新/退/停/投/形势）= 8
             // ════════════════════════════════════════════════════════
             AnalysisFooter(
                 state = state,
                 onPrev = onAnalysisPrev,
                 onNext = onAnalysisNext,
                 onJumpToMove = onAnalysisJump,
-                onToggleEye = onToggleEye,
+                onToggleEye = onToggleEye
+            )
+            Spacer(Modifier.height(4.dp))
+            PlayButtonRow(
+                state = state,
+                onNewGame = onNewGame,
                 onPass = onPass,
-                onHint = {},
-                onUndo = onUndo,
                 onResign = onResign,
                 onTerritoryEstimate = onTerritoryEstimate,
-                onNewGame = onNewGame,
-                onShowSettings = onShowSettings
+                onUndo = onUndo
             )
+            Spacer(Modifier.height(6.dp))
         }
 
         // ═══ Dialogs (drawn OVER the board, never inside the scroll Column) ═══
