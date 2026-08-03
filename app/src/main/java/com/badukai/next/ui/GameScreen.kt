@@ -475,23 +475,28 @@ private fun PlayButtonRow(
     ) {
         GlassIconBtn(
             "\u2795", "New", onClick = onNewGame,
-            enabled = true, primary = true
+            enabled = true, primary = true,
+            modifier = Modifier.weight(1f)
         )
         GlassIconBtn(
             "\u21BA", "Undo", onClick = onUndo,
-            enabled = state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() >= 2
+            enabled = state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() >= 2,
+            modifier = Modifier.weight(1f)
         )
         GlassIconBtn(
             "\u23ED", "Pass", onClick = onPass,
-            enabled = state.isPlayerTurn && !state.isThinking && state.isEngineReady
+            enabled = state.isPlayerTurn && !state.isThinking && state.isEngineReady,
+            modifier = Modifier.weight(1f)
         )
         GlassIconBtn(
             "\u2691", "Resign", onClick = onResign,
-            enabled = state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() > 0
+            enabled = state.isPlayerTurn && !state.isThinking && state.board.getMoveCount() > 0,
+            modifier = Modifier.weight(1f)
         )
         GlassIconBtn(
             "\u25CE", "形势", onClick = onTerritoryEstimate,
-            enabled = true, accent = true
+            enabled = true, accent = true,
+            modifier = Modifier.weight(1f)
         )
     }
 }
@@ -499,12 +504,12 @@ private fun PlayButtonRow(
 @Composable
 private fun GlassIconBtn(
     icon: String, label: String, onClick: () -> Unit,
-    enabled: Boolean = true, primary: Boolean = false, accent: Boolean = false
+    enabled: Boolean = true, primary: Boolean = false, accent: Boolean = false,
+    modifier: Modifier = Modifier
 ) {
     val colors = LocalThemeColors.current
     Column(
-        modifier = Modifier
-            .weight(1f)
+        modifier = modifier
             .then(
                 if (enabled)
                     Modifier
