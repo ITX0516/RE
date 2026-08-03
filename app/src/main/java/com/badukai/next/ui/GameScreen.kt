@@ -112,7 +112,6 @@ fun GameScreen(
     }
 
     // ═══ Liquid-glass background gradient + colored blobs ═══
-    // (保留玻璃渐变底，工具条等浅色控件在此背景上能透出彩色边缘)
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -125,11 +124,11 @@ fun GameScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // ────────────────────────────────────────────────────────
-            // LINE 1: Action bar (仿阿Q截图第一行：5个工具图标+分析/对弈分段胶囊)
+            // LINE 1: Action bar — 5个文字按钮（不搞图标）+ 对弈/分析胶囊
+            // 高度压缩到 46dp，比原来的54dp小，防止挤
             // ────────────────────────────────────────────────────────
             val isDiagnostic = state.gameMessage.contains("=== AI START DIAGNOSTIC ===")
             if (isDiagnostic) {
-                // 紧急诊断信息（AI启动失败）占据顶栏 — 全屏展开便于排查
                 val scroll = rememberScrollState()
                 Box(
                     modifier = Modifier
@@ -159,34 +158,39 @@ fun GameScreen(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 2.dp)
-                        .height(54.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .height(46.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    // 5个工具图标（左对齐均分）
-                    Row(
-                        Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.Start)
-                    ) {
-                        TopBarActionBtn("\u2630", onClick = onShowSettings)   // ☰ 设置
-                        TopBarActionBtn("\uD83D\uDCC2", onClick = onShowSavedGames) // 📂 打开
-                        TopBarActionBtn("\uD83D\uDCBE", onClick = onSaveSgf)        // 💾 保存
-                        TopBarActionBtn("\uD83D\uDD17", onClick = {})                // 🔗 分享（占位）
-                        TopBarActionBtn("A\u2715", onClick = {})                    // A❌ 辅助/插件占位
-                    }
-                    // 右上角：分析 | 对弈 分段胶囊（和截图一致）
-                    Row(
-                        Modifier
-                            .height(40.dp)
-                            .glassSurface(
-                                shape = RoundedCornerShape(14.dp),
-                                intensity = GlassIntensity.CARD,
-                                accentRim = false,
-                                addShadow = false
+                    listOf("设" to onShowSettings, "读" to onShowSavedGames,
+                           "存" to onSaveSgf, "享" to {}, "关" to {}
+                    ).forEach { (label, cb) ->
+                        Box(
+                            Modifier
+                                .height(40.dp)
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(colors.GlassFill.copy(alpha = 0.3f))
+                                .border(0.5.dp, colors.GlassEdge.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                                .clickable(onClick = cb),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                label,
+                                color = colors.TextPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
                             )
+                        }
+                    }
+                    // 对弈 / 分析 胶囊（用户原图最右侧）
+                    Row(
+                        Modifier
+                            .height(38.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(colors.GlassFill.copy(alpha = 0.45f))
+                            .border(0.5.dp, colors.GlassEdge.copy(alpha = 0.55f), RoundedCornerShape(14.dp))
                             .padding(2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -198,26 +202,23 @@ fun GameScreen(
                             }
                             Box(
                                 Modifier
-                                    .heightIn(min = 40.dp)
+                                    .heightIn(min = 36.dp)
                                     .then(
-                                        if (sel)
-                                            Modifier.background(
-                                                brush = Brush.horizontalGradient(
-                                                    listOf(colors.Accent, colors.AccentLight)
-                                                ),
-                                                RoundedCornerShape(12.dp)
-                                            )
-                                        else Modifier
+                                        if (sel) Modifier.background(
+                                            brush = Brush.horizontalGradient(
+                                                listOf(colors.Accent, colors.AccentLight)
+                                            ), RoundedCornerShape(12.dp)
+                                        ) else Modifier
                                     )
                                     .clip(RoundedCornerShape(12.dp))
                                     .clickable { onSetGameMode(mode) }
-                                    .padding(horizontal = 18.dp, vertical = 8.dp),
+                                    .padding(horizontal = 14.dp, vertical = 6.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     label,
                                     color = if (sel) colors.TextOnAccent else colors.TextPrimary,
-                                    fontSize = 15.sp,
+                                    fontSize = 13.sp,
                                     fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium
                                 )
                             }
@@ -227,87 +228,73 @@ fun GameScreen(
             }
 
             // ────────────────────────────────────────────────────────
-            // LINE 2: Match status bar — 黑棋 [提子] [时间] 白棋 [提子] [时间]
+            // LINE 2: Match status — 压缩高度到38dp，棋子28dp，左黑右白，不挤
             // ────────────────────────────────────────────────────────
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp)
-                    .height(48.dp),
+                    .padding(horizontal = 10.dp, vertical = 0.dp)
+                    .height(38.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceAround
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // 黑方
-                Row(
-                    Modifier.wrapContentWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    StonePuck(StoneColor.BLACK)
+                // 黑方 左对齐
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StonePuckSmall(StoneColor.BLACK)
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "黑棋",
+                        color = colors.TextPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                     Spacer(Modifier.width(10.dp))
-                    Text("黑棋", color = colors.TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.width(16.dp))
-                    ScoreChip(text = "${state.capturedByBlack}")
-                    Spacer(Modifier.width(8.dp))
-                    ScoreChip(text = "00:09", mono = true, accent = false) // 计时器占位
+                    ScoreChipSmall(text = "${state.capturedByBlack}")
+                    Spacer(Modifier.width(6.dp))
+                    ScoreChipSmall(text = "00:09", mono = true)
                 }
-                Spacer(Modifier.width(8.dp))
-                // 白方
-                Row(
-                    Modifier.wrapContentWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    StonePuck(StoneColor.WHITE)
+                // 白方 右对齐
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ScoreChipSmall(text = "--:--", mono = true)
+                    Spacer(Modifier.width(6.dp))
+                    ScoreChipSmall(text = "${state.capturedByWhite}")
                     Spacer(Modifier.width(10.dp))
-                    Text("白棋", color = colors.TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.width(16.dp))
-                    ScoreChip(text = "${state.capturedByWhite}")
-                    Spacer(Modifier.width(8.dp))
-                    ScoreChip(text = "--:--", mono = true, accent = false)
+                    Text(
+                        "白棋",
+                        color = colors.TextPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    StonePuckSmall(StoneColor.WHITE)
                 }
             }
 
             // ────────────────────────────────────────────────────────
-            // LINE 3: Move counter (居中：手数 N 轮X下)
+            // LINE 3: 胜率条（恢复原版阿Q位置，就在状态条下，棋盘上）
             // ────────────────────────────────────────────────────────
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val moveCount = state.board.getMoveCount()
-                val turnColor = state.currentPlayer
-                val turnLabel = if (turnColor == StoneColor.BLACK) "黑" else "白"
-                Text(
-                    "手数 $moveCount  轮${turnLabel}下",
-                    color = colors.TextPrimary,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
+            WinRateBarSmall(state = state)
 
             // ════════════════════════════════════════════════════════
-            // BOARD：无玻璃框，坐标直接放在棋盘边缘，100% 面积给棋盘
+            // BOARD：无玻璃框，无遮挡，保证显示面积
             // ════════════════════════════════════════════════════════
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 0.dp),
+                    .padding(horizontal = 0.dp, vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1f),
+                    modifier = Modifier.fillMaxWidth().aspectRatio(1f),
                     shape = RoundedCornerShape(0.dp),
                     shadowElevation = 0.dp,
                     color = colors.BoardBackground
                 ) {
                     GoBoard(
                         board = state.board, lastMovePoint = state.lastMovePoint,
-                        onIntersectionTap = onBoardTap, enabled = state.isEngineReady && !state.isThinking,
+                        onIntersectionTap = onBoardTap,
+                        enabled = state.isEngineReady && !state.isThinking,
                         showCoordinates = state.showCoordinates,
                         pendingDot = state.pendingTap,
                         showTerritory = state.showTerritoryOverlay,
@@ -322,8 +309,7 @@ fun GameScreen(
                         moveQualities = state.moveQualities
                     )
                 }
-
-                // Territory 估计状态浮层：悬浮在棋盘右下，不打断布局
+                // Territory 浮层
                 if (state.showTerritoryOverlay && state.territoryResult.isNotEmpty()) {
                     Box(
                         Modifier
@@ -356,7 +342,12 @@ fun GameScreen(
                                     .padding(horizontal = 16.dp, vertical = 8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text("强制终局", color = colors.TextOnAccent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "终局",
+                                    color = colors.TextOnAccent,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
@@ -364,7 +355,7 @@ fun GameScreen(
             }
 
             // ════════════════════════════════════════════════════════
-            // FOOTER：AnalysisFooter（内部包含3 Tab + 面板 + 双行工具条）
+            // FOOTER：3 Tab + 面板 + 1行7个按钮（原版只有1行，不是2行！）
             // ════════════════════════════════════════════════════════
             AnalysisFooter(
                 state = state,
@@ -547,60 +538,16 @@ private fun GlassIconBtn(
 }
 
 // ──────────────────────────────────────────────
-// TopBar Action Icon Button — 简薄圆角按钮，不堆厚玻璃
+// 小一号 StonePuck — 28dp，避免被棋盘挡住
 // ──────────────────────────────────────────────
 @Composable
-private fun TopBarActionBtn(
-    icon: String,
-    onClick: () -> Unit,
-    enabled: Boolean = true
-) {
-    val colors = LocalThemeColors.current
-    Box(
-        Modifier
-            .size(46.dp)
-            .then(
-                if (enabled)
-                    Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(
-                            colors.GlassFill.copy(alpha = 0.35f),
-                            RoundedCornerShape(12.dp)
-                        )
-                        .border(
-                            0.6.dp,
-                            colors.GlassEdge.copy(alpha = 0.55f),
-                            RoundedCornerShape(12.dp)
-                        )
-                        .clickable(onClick = onClick)
-                else
-                    Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.GlassFill.copy(alpha = 0.18f))
-            )
-            .padding(horizontal = 2.dp, vertical = 2.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            icon,
-            color = if (enabled) colors.TextPrimary else colors.ButtonDisabledText,
-            fontSize = 21.sp,
-            fontWeight = FontWeight.Medium
-        )
-    }
-}
-
-// ──────────────────────────────────────────────
-// Stone puck (黑/白色棋子图标，26dp)
-// ──────────────────────────────────────────────
-@Composable
-private fun StonePuck(color: StoneColor) {
+private fun StonePuckSmall(color: StoneColor) {
     val colors = LocalThemeColors.current
     when (color) {
         StoneColor.BLACK -> {
             Box(
                 Modifier
-                    .size(36.dp)
+                    .size(28.dp)
                     .clip(CircleShape)
                     .background(
                         brush = Brush.radialGradient(
@@ -612,57 +559,106 @@ private fun StonePuck(color: StoneColor) {
         StoneColor.WHITE -> {
             Box(
                 Modifier
-                    .size(36.dp)
+                    .size(28.dp)
                     .clip(CircleShape)
                     .background(
                         brush = Brush.radialGradient(
                             listOf(Color.White, colors.WhiteStone)
                         )
                     )
-                    .border(0.6.dp, colors.WhiteStoneBorder, CircleShape)
+                    .border(0.5.dp, colors.WhiteStoneBorder, CircleShape)
             )
         }
-        else -> { /* no-op, safety for new enum values */ }
+        else -> {}
     }
 }
 
 // ──────────────────────────────────────────────
-// Score chip — 提子数 / 计时器 小胶囊
+// 小一号 ScoreChip — 提子/计时器
 // ──────────────────────────────────────────────
 @Composable
-private fun ScoreChip(
-    text: String,
-    mono: Boolean = false,
-    accent: Boolean = false
-) {
+private fun ScoreChipSmall(text: String, mono: Boolean = false) {
     val colors = LocalThemeColors.current
-    val bg = when {
-        accent -> colors.Accent.copy(alpha = 0.9f)
-        else -> colors.GlassFill
-    }
-    val fg = when {
-        accent -> colors.TextOnAccent
-        else -> colors.TextPrimary
-    }
     Box(
         Modifier
-            .glassSurface(
-                shape = RoundedCornerShape(8.dp),
-                intensity = if (accent) GlassIntensity.STRONG else GlassIntensity.CARD,
-                accentRim = accent,
-                addShadow = false
-            )
-            .then(if (accent) Modifier.background(bg, RoundedCornerShape(8.dp)) else Modifier)
             .clip(RoundedCornerShape(8.dp))
-            .padding(horizontal = 14.dp, vertical = 6.dp),
+            .background(colors.GlassFill.copy(alpha = 0.4f))
+            .border(0.5.dp, colors.GlassEdge.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text,
-            color = fg,
-            fontSize = 18.sp,
+            color = colors.TextPrimary,
+            fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
-            fontFamily = if (mono) androidx.compose.ui.text.font.FontFamily.Monospace else null
+            fontFamily = if (mono) FontFamily.Monospace else null
         )
+    }
+}
+
+// ──────────────────────────────────────────────
+// 小而清楚的胜率条（就在状态行下/棋盘上，仿阿Q原版）
+// ──────────────────────────────────────────────
+@Composable
+private fun WinRateBarSmall(state: GameState) {
+    val colors = LocalThemeColors.current
+    val t = if (state.winrate > 0f) state.winrate else 0.5f
+    val blackW = (1f - t).coerceIn(0f, 1f)
+    val whiteW = t.coerceIn(0f, 1f)
+    val lead = state.scoreLead
+    val leadText = if (lead == 0f && state.winrate <= 0f) "0.0" else "%.1f".format(kotlin.math.abs(lead))
+    val leadSide = if (lead >= 0f) "B" else "W"
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .height(28.dp)
+        ) {
+            // 左侧 黑方 — 深灰背景（仿原版45.7%那种深底白字）
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(blackW)
+                    .background(
+                        brush = Brush.horizontalGradient(
+                            listOf(colors.BlackStone, colors.BlackStoneHighlight)
+                        )
+                    ),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Text(
+                    "${"%.1f".format(blackW * 100f)}% ($leadSide-$leadText)",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(start = 10.dp)
+                )
+            }
+            // 右侧 白方 — 白背景黑字
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth()
+                    .background(Color.White)
+                    .border(0.5.dp, colors.GlassEdge.copy(alpha = 0.5f)),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Text(
+                    "${"%.1f".format(whiteW * 100f)}% ($leadSide+$leadText)",
+                    color = Color.Black,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(end = 10.dp)
+                )
+            }
+        }
     }
 }

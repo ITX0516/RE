@@ -4,14 +4,34 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -24,18 +44,15 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.graphics.Paint
 import com.badukai.next.analysis.AnalysisTab
 import com.badukai.next.game.GameState
+import com.badukai.next.game.Move
 
 // ══════════════════════════════════════════════════════════════════════════════
-// AnalysisFooter — 仿阿Q截图底部：
-//   3 Tab（落子树 ● | 走势图 | 选点表） + 快捷菜单 胶囊
-//   + 面板（落子树节点 / 走势图2×2Tab / 选点表6列）
-//   + 底部双行工具条（7 图标 + 7 图标）
+// AnalysisFooter — 3 Tab + 面板 + 底部1行（7个汉字按钮）
 // ══════════════════════════════════════════════════════════════════════════════
 @Composable
 fun AnalysisFooter(
@@ -54,32 +71,27 @@ fun AnalysisFooter(
 ) {
     val colors = LocalThemeColors.current
     var selectedTab by remember { mutableStateOf(AnalysisTab.MOVE_TREE) }
-    // 走势图内部的 2×2 Tab
-    var wrSide by remember { mutableStateOf(0) }   // 0=双方 / 1=黑棋 / 2=白棋
-    var wrAxis by remember { mutableStateOf(0) }   // 0=胜率 / 1=目差
+    var wrSide by remember { mutableIntStateOf(0) }   // 0双方 1黑 2白
+    var wrAxis by remember { mutableIntStateOf(0) }   // 0胜率 1目差
 
-    // ──────────────────────────────────────────────────────────────────
-    // Tab Bar: 落子树 ● | 走势图 | 选点表   +  快捷菜单 (右)
-    // ──────────────────────────────────────────────────────────────────
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(top = 4.dp)
+            .padding(top = 2.dp)
     ) {
+        // ─── Tab 行 + 快捷菜单 ───
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 4.dp)
-                .height(48.dp),
+                .padding(horizontal = 10.dp, vertical = 2.dp)
+                .height(44.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
+                Modifier.wrapContentWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.Start)
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 AnalysisTab.entries.forEach { tab ->
                     val label = when (tab) {
@@ -91,36 +103,23 @@ fun AnalysisFooter(
                     val isSel = tab == selectedTab
                     Box(
                         Modifier
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable { selectedTab = tab }
                             .padding(horizontal = 12.dp, vertical = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                            verticalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    label,
-                                    color = if (isSel) colors.TextPrimary else colors.TextSecondary,
-                                    fontSize = 16.sp,
-                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium
-                                )
-                                if (isSel && tab == AnalysisTab.MOVE_TREE) {
-                                    Spacer(Modifier.width(4.dp))
-                                    Box(
-                                        Modifier
-                                            .size(7.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFFF5A5A))
-                                    )
-                                }
-                            }
-                            // 选中态下划线
+                            Text(
+                                label,
+                                color = if (isSel) colors.TextPrimary else colors.TextSecondary,
+                                fontSize = 18.sp,
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium
+                            )
                             if (isSel) {
-                                val lineColor = when (tab) {
+                                val color = when (tab) {
                                     AnalysisTab.MOVE_TREE -> Color(0xFFFFD24A)
                                     AnalysisTab.CHART -> Color(0xFFB99057)
                                     AnalysisTab.CANDIDATES -> colors.AccentLight
@@ -131,16 +130,16 @@ fun AnalysisFooter(
                                         .width(36.dp)
                                         .height(3.dp)
                                         .clip(RoundedCornerShape(2.dp))
-                                        .background(lineColor)
+                                        .background(color)
                                 )
                             }
                         }
                     }
                 }
-                // 中间3点指示器（截图底部面板顶部有三个●●●分隔符）
+                // 三个小圆点分隔
                 Row(
-                    Modifier.padding(horizontal = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    Modifier.padding(start = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     repeat(3) {
                         Box(
@@ -152,88 +151,72 @@ fun AnalysisFooter(
                     }
                 }
             }
-            // ─── 快捷菜单 胶囊 ───
+            // 快捷菜单
             Box(
                 Modifier
                     .height(40.dp)
-                    .glassSurface(
-                        shape = RoundedCornerShape(12.dp),
-                        intensity = GlassIntensity.CARD,
-                        accentRim = false,
-                        addShadow = false
-                    )
                     .clip(RoundedCornerShape(12.dp))
+                    .background(colors.GlassFill.copy(alpha = 0.55f))
+                    .border(0.5.dp, colors.GlassEdge.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
                     .clickable(onClick = onShowSettings)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 18.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     "快捷菜单",
                     color = colors.TextPrimary,
-                    fontSize = 15.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold
                 )
             }
         }
 
-        // ──────────────────────────────────────────────────────────────────
-        // Panel (根据 Tab 切换)
-        // ──────────────────────────────────────────────────────────────────
+        // ─── 面板 220dp ───
         Box(
             Modifier
                 .fillMaxWidth()
                 .height(220.dp)
                 .padding(horizontal = 10.dp)
-                .glassSurface(
-                    shape = RoundedCornerShape(16.dp),
-                    intensity = GlassIntensity.CARD,
-                    accentRim = false,
-                    addShadow = false
-                )
+                .clip(RoundedCornerShape(16.dp))
+                .background(colors.GlassFillStrong)
+                .border(0.6.dp, colors.GlassEdge.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
                 .padding(6.dp)
         ) {
             when (selectedTab) {
-                // ─── 落子树（未实现：先留空不造假） ───
-                AnalysisTab.MOVE_TREE -> {
-                    Box(
-                        Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            "落子树",
-                            color = colors.TextSecondary,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
+                // =====================================================
+                // 落子树 — 直接用 state.analysisMoves 显示真实记录
+                // =====================================================
+                AnalysisTab.MOVE_TREE -> MoveTreePanel(state = state, onJump = onJumpToMove)
 
-                // ─── 走势图 (2×2 Tab: 双方/黑/白 × 胜率/目差) ───
+                // =====================================================
+                // 走势图 2×2 Tab
+                // =====================================================
                 AnalysisTab.CHART -> {
                     Column(Modifier.fillMaxSize()) {
-                        // 2 行 Tab：侧/轴
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                                .padding(horizontal = 4.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
+                            val sides = listOf("双方", "黑棋", "白棋")
+                            val axes = listOf("胜率", "目差")
                             Row(
                                 Modifier
-                                    .glassSurface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        intensity = GlassIntensity.THIN,
-                                        addShadow = false
-                                    )
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(colors.GlassFill.copy(alpha = 0.35f))
                                     .padding(2.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                listOf("双方", "黑棋", "白棋").forEachIndexed { i, t ->
+                                sides.forEachIndexed { i, t ->
                                     val sel = wrSide == i
                                     Box(
                                         Modifier
-                                            .then(if (sel) Modifier.background(colors.GlassFillStrong, RoundedCornerShape(8.dp)) else Modifier)
+                                            .then(if (sel) Modifier.background(
+                                                colors.GlassFillStrong,
+                                                RoundedCornerShape(8.dp)
+                                            ) else Modifier)
                                             .clip(RoundedCornerShape(8.dp))
                                             .clickable { wrSide = i }
                                             .padding(horizontal = 14.dp, vertical = 6.dp),
@@ -242,7 +225,7 @@ fun AnalysisFooter(
                                         Text(
                                             t,
                                             color = if (sel) colors.TextPrimary else colors.TextSecondary,
-                                            fontSize = 14.sp,
+                                            fontSize = 15.sp,
                                             fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium
                                         )
                                     }
@@ -250,19 +233,19 @@ fun AnalysisFooter(
                             }
                             Row(
                                 Modifier
-                                    .glassSurface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        intensity = GlassIntensity.THIN,
-                                        addShadow = false
-                                    )
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(colors.GlassFill.copy(alpha = 0.35f))
                                     .padding(2.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                listOf("胜率", "目差").forEachIndexed { i, t ->
+                                axes.forEachIndexed { i, t ->
                                     val sel = wrAxis == i
                                     Box(
                                         Modifier
-                                            .then(if (sel) Modifier.background(colors.GlassFillStrong, RoundedCornerShape(8.dp)) else Modifier)
+                                            .then(if (sel) Modifier.background(
+                                                colors.GlassFillStrong,
+                                                RoundedCornerShape(8.dp)
+                                            ) else Modifier)
                                             .clip(RoundedCornerShape(8.dp))
                                             .clickable { wrAxis = i }
                                             .padding(horizontal = 14.dp, vertical = 6.dp),
@@ -271,7 +254,7 @@ fun AnalysisFooter(
                                         Text(
                                             t,
                                             color = if (sel) colors.TextPrimary else colors.TextSecondary,
-                                            fontSize = 14.sp,
+                                            fontSize = 15.sp,
                                             fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium
                                         )
                                     }
@@ -282,13 +265,12 @@ fun AnalysisFooter(
                             Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
-                                .padding(horizontal = 6.dp, vertical = 4.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(colors.GlassFillStrong)
-                                .border(
-                                    0.6.dp,
-                                    colors.GlassEdge.copy(alpha = 0.55f),
-                                    RoundedCornerShape(16.dp)
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color(0xFF8A8D91), Color(0xFFA9ACB0))
+                                    )
                                 )
                         ) {
                             WinRateCanvas(
@@ -301,7 +283,9 @@ fun AnalysisFooter(
                     }
                 }
 
-                // ─── 选点表 6 列 ───
+                // =====================================================
+                // 选点表 4列：序号 / 坐标 / 胜率 / 目差（我们没有计算量/复杂度，就不造假）
+                // =====================================================
                 AnalysisTab.CANDIDATES -> {
                     Column(
                         Modifier
@@ -314,237 +298,365 @@ fun AnalysisFooter(
                                 .fillMaxWidth()
                                 .padding(horizontal = 10.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            val headers = listOf("序号", "坐标", "胜率", "目差", "计算量", "复杂度")
-                            val weights = listOf(0.9f, 1.3f, 1.1f, 1.0f, 1.1f, 1.1f)
-                            headers.zip(weights).forEach { (t, w) ->
+                            val headers = listOf("序号" to 0.8f, "坐标" to 1.2f,
+                                "胜率" to 1.2f, "目差" to 1.0f)
+                            headers.forEach { (t, w) ->
                                 Box(
-                                    Modifier.weight(w),
+                                    Modifier.fillMaxWidth().weight(w),
                                     contentAlignment = Alignment.CenterStart
                                 ) {
                                     Text(
                                         t,
                                         color = colors.TextSecondary,
-                                        fontSize = 14.sp,
+                                        fontSize = 15.sp,
                                         fontWeight = FontWeight.Medium
                                     )
                                 }
                             }
                         }
-                        Divider(
-                            color = colors.Divider.copy(alpha = 0.45f),
+                        androidx.compose.foundation.layout.HorizontalDivider(
+                            color = colors.Divider.copy(alpha = 0.5f),
                             thickness = 0.6.dp
                         )
-                        // 数据行：用 state.topCandidate 列表合成
                         val data = state.topCandidatePoints.zip(
                             state.topCandidateWinrates.ifEmpty {
                                 List(state.topCandidatePoints.size) { 0.5f }
                             }
-                        ).toList()
-                        val colNames = listOf("D16", "Q16", "D17", "C16", "Q17", "R16", "Q5", "R5")
-                        data.take(8).forEachIndexed { i, (pt, wr) ->
-                            val bg = if (i % 2 == 0) colors.GlassFill else Color.Transparent
-                            Row(
+                        )
+                        val leadHistory = state.scoreLeadHistory
+                        if (data.isEmpty()) {
+                            Box(
                                 Modifier
                                     .fillMaxWidth()
-                                    .background(bg)
-                                    .padding(horizontal = 10.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    .heightIn(min = 80.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                // 序号：统一灰色文字
-                                Box(
-                                    Modifier.weight(0.9f),
-                                    contentAlignment = Alignment.CenterStart
-                                ) {
-                                    Text(
-                                        "${i + 1}",
-                                        color = colors.TextPrimary,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                                val (ptX, ptY) = pt
-                                val coord = runCatching {
-                                    val size = state.board.size
-                                    val letter = "ABCDEFGHJKLMNOPQRST"[ptX]
-                                    "${letter}${size - ptY}"
-                                }.getOrElse { colNames.getOrElse(i) { "${ptX},${ptY}" } }
-                                val winrateStr = "${"%.2f".format(wr * 100f)}%"
-                                val leadVal = (i % 3 - 1).toFloat()
-                                val leadStr = "${if (leadVal > 0) "+" else ""}${"%.2f".format(leadVal)}"
-                                val playouts = 28 - (i * 3).coerceAtMost(20)
-                                val complexity = "23.${(7 - (i % 2)) % 9}"
-                                val cells: List<Pair<Float, String>> = listOf(
-                                    1.3f to coord,
-                                    1.1f to winrateStr,
-                                    1.0f to leadStr,
-                                    1.1f to "$playouts",
-                                    1.1f to complexity
+                                Text(
+                                    "暂无候选点",
+                                    color = colors.TextSecondary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium
                                 )
-                                cells.forEach { (w, t) ->
-                                    Box(
-                                        Modifier.weight(w),
-                                        contentAlignment = Alignment.CenterStart
-                                    ) {
-                                        Text(
-                                            t,
-                                            color = colors.TextPrimary,
-                                            fontSize = 15.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontFamily = FontFamily.Monospace
-                                        )
+                            }
+                        } else {
+                            data.take(10).forEachIndexed { i, (pt, wr) ->
+                                val bg = if (i % 2 == 0) colors.GlassFill else Color.Transparent
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .background(bg)
+                                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    val (x, y) = pt
+                                    val size = state.board.size
+                                    val coord = runCatching {
+                                        val letter = "ABCDEFGHJKLMNOPQRST"[x]
+                                        "${letter}${size - y}"
+                                    }.getOrElse { "${x},${y}" }
+                                    val winStr = "%.2f%%".format(wr * 100f)
+                                    val lead = leadHistory.getOrElse(i) { state.scoreLead }
+                                    val leadStr = if (lead >= 0f) "+%.2f".format(lead)
+                                    else "%.2f".format(lead)
+                                    val cells = listOf(
+                                        Triple(0.8f, "${i + 1}", FontWeight.SemiBold),
+                                        Triple(1.2f, coord, FontWeight.SemiBold),
+                                        Triple(1.2f, winStr, FontWeight.SemiBold),
+                                        Triple(1.0f, leadStr, FontWeight.SemiBold)
+                                    )
+                                    cells.forEach { (w, t, fw) ->
+                                        Box(
+                                            Modifier.fillMaxWidth().weight(w),
+                                            contentAlignment = Alignment.CenterStart
+                                        ) {
+                                            Text(
+                                                t,
+                                                color = colors.TextPrimary,
+                                                fontSize = 17.sp,
+                                                fontWeight = fw,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
+                else -> Box(Modifier.fillMaxSize())
             }
         }
 
-        // ──────────────────────────────────────────────────────────────────
-        // 底部双行工具条
-        // Row 1: Pass | Hint | ◀◀ | ▶ | ▶▶ | Eye | Settings
-        // Row 2: +Variation | Split | ◀ | ▶ | Calc | AIToggle | NewNode
-        // ──────────────────────────────────────────────────────────────────
-        // 3点 分隔符
+        // ─── 底部3个小圆点分隔符 ───
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(vertical = 6.dp),
+                .padding(vertical = 4.dp),
             horizontalArrangement = Arrangement.Center
         ) {
-            repeat(3) {
+            repeat(3) { i ->
                 Box(
-                    Modifier
-                        .size(5.dp)
-                        .clip(CircleShape)
-                        .background(colors.TextSecondary.copy(alpha = 0.5f))
+                    Modifier.size(5.dp).clip(CircleShape)
+                        .background(colors.TextSecondary.copy(alpha = if (i == 1) 0.75f else 0.45f))
                 )
-                if (it < 2) Spacer(Modifier.width(5.dp))
+                if (i < 2) Spacer(Modifier.width(5.dp))
             }
         }
 
-        // Row 1 — 无emoji，纯Unicode/几何符号
+        // ════════════════════════════════════════════════════════════
+        // 底部 1行 7个汉字按钮（和原版数量/位置一致，全部汉字不用图标）
+        // ════════════════════════════════════════════════════════════
         Row(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 6.dp, vertical = 2.dp)
-                .height(56.dp),
+                .height(54.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            ToolbarIcon("P", label = "Pass", onClick = onPass)                // Pass
-            ToolbarIcon("?", label = "Hint", onClick = onHint)                // Hint
-            ToolbarIcon("|◀", label = "◀◀", onClick = onPrev)                 // Prev var
-            ToolbarIcon("▶", label = "▶", onClick = onNext, primary = true)   // Play / Next
-            ToolbarIcon("▶|", label = "▶▶", onClick = {})                     // Next var
-            ToolbarIcon("◉", label = "Eye", onClick = onToggleEye)            // Eye
-            ToolbarIcon("⚙", label = "Cfg", onClick = onShowSettings)         // Settings
-        }
-        // Row 2
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 2.dp)
-                .height(56.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            ToolbarIcon("✚", label = "New", onClick = onNewGame)              // New (branch)
-            ToolbarIcon("✂", label = "Cut", onClick = onResign)               // Cut
-            ToolbarIcon("◀", label = "◀", onClick = onUndo)                   // Back
-            ToolbarIcon("▶", label = "▶", onClick = onNext)                   // Forward
-            ToolbarIcon("▦", label = "Terr", onClick = onTerritoryEstimate)   // Territory
-            AiToggleChip(state = state, onClick = onNewGame)                  // AI Switch
-            ToolbarIcon("§", label = "Node", onClick = {})                    // Node info
+            ToolbarText("变", onClick = onNewGame)            // 1. 变着/新分支
+            ToolbarText("剪", onClick = onResign)            // 2. 剪分支/认输
+            ToolbarText("退", onClick = onUndo)              // 3. 退一步
+            ToolbarText("进", onClick = onNext, primary = true)  // 4. 进一步（主色强调）
+            ToolbarText("算", onClick = onTerritoryEstimate)  // 5. 数子/形势
+            AiSwitchText(state = state, onClick = onNewGame)  // 6. AI 开关
+            ToolbarText("记", onClick = onShowSettings)       // 7. 记录/备注
         }
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// 工具栏图标按钮（纯符号，无彩色Emoji）
-// ══════════════════════════════════════════════════════════════════════════════
+// ================================================================
+// 落子树面板：真实读取 state.analysisMoves / playedMovePoints
+// ================================================================
 @Composable
-private fun ToolbarIcon(
-    icon: String,
-    label: String,
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-    primary: Boolean = false,
-    accent: Boolean = false,
-    tintColor: Color? = null
-) {
+private fun MoveTreePanel(state: GameState, onJump: (Int) -> Unit) {
     val colors = LocalThemeColors.current
+    val moves = state.analysisMoves
+    val scroll = rememberScrollState()
+    val letters = "ABCDEFGHJKLMNOPQRST"
     Column(
         Modifier
-            .size(54.dp, 54.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .then(
-                when {
-                    !enabled -> Modifier.background(
-                        colors.GlassFill.copy(alpha = 0.12f),
-                        RoundedCornerShape(14.dp)
-                    )
-                    primary -> Modifier
-                        .background(
-                            brush = Brush.verticalGradient(
-                                listOf(colors.Accent, colors.AccentVariant)
-                            ),
-                            RoundedCornerShape(14.dp)
-                        )
-                        .clickable(onClick = onClick)
-                    else -> Modifier.clickable(onClick = onClick)
-                }
-            )
-            .padding(vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .fillMaxSize()
+            .verticalScroll(scroll)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        val icColor = tintColor ?: when {
-            !enabled -> colors.ButtonDisabledText
-            primary -> colors.TextOnAccent
-            accent -> colors.Accent
-            else -> colors.TextPrimary
+        if (moves.isEmpty()) {
+            // analysisMoves 为空就退回用 playedMovePoints + history 拼接显示
+            val points = state.playedMovePoints
+            if (points.isEmpty()) {
+                Box(
+                    Modifier.fillMaxSize().padding(vertical = 40.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "暂无落子记录",
+                        color = colors.TextSecondary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            } else {
+                points.forEachIndexed { idx, (x, y) ->
+                    val size = state.board.size
+                    val letter = runCatching { letters[x] }.getOrElse { '?' }
+                    val num = size - y
+                    val color = if (idx % 2 == 0) StoneColor.BLACK else StoneColor.WHITE
+                    val coordStr = "$letter$num"
+                    val sel = state.analysisMoveIndex == (idx + 1)
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (sel) colors.AccentLight.copy(alpha = 0.45f)
+                                else if (idx % 2 == 0) colors.GlassFill else Color.Transparent
+                            )
+                            .clickable { onJump(idx + 1) }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // 手数序号
+                        Box(
+                            Modifier.width(40.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            Text(
+                                "${idx + 1}.",
+                                color = colors.TextPrimary,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        // 方/子
+                        Text(
+                            if (color == StoneColor.BLACK) "● 黑" else "○ 白",
+                            color = colors.TextPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        // 坐标
+                        Text(
+                            coordStr,
+                            color = colors.TextPrimary,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+        } else {
+            moves.forEachIndexed { idx, rec ->
+                val mv = rec.move
+                val (x, y) = if (mv is Move.Stone) {
+                    (mv.point.x) to (mv.point.y)
+                } else (-1 to -1)
+                val size = state.board.size
+                val coord = if (x >= 0 && y >= 0) {
+                    runCatching {
+                        val letter = letters[x]
+                        "$letter${size - y}"
+                    }.getOrElse { "—" }
+                } else {
+                    if (mv is Move.Pass) "停一手"
+                    else if (mv is Move.Resign) "认输" else "—"
+                }
+                val color = if (idx % 2 == 0) StoneColor.BLACK else StoneColor.WHITE
+                val sel = state.analysisMoveIndex == (idx + 1)
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(
+                            if (sel) colors.AccentLight.copy(alpha = 0.45f)
+                            else if (idx % 2 == 0) colors.GlassFill else Color.Transparent
+                        )
+                        .clickable { onJump(idx + 1) }
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(Modifier.width(40.dp), contentAlignment = Alignment.CenterStart) {
+                        Text(
+                            "${idx + 1}.",
+                            color = colors.TextPrimary,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    Text(
+                        if (color == StoneColor.BLACK) "● 黑" else "○ 白",
+                        color = colors.TextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        coord,
+                        color = colors.TextPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    // 胜率（如果有）
+                    val w = rec.winrate
+                    if (w != null && w > 0f) {
+                        Text(
+                            "%.1f%%".format(w * 100f),
+                            color = colors.Accent,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
         }
+    }
+}
+
+// ================================================================
+// 底部汉字按钮（1字/2字）— 一律不画图标，就汉字
+// ================================================================
+@Composable
+private fun ToolbarText(
+    text: String,
+    onClick: () -> Unit,
+    primary: Boolean = false,
+    enabled: Boolean = true
+) {
+    val colors = LocalThemeColors.current
+    Box(
+        Modifier
+            .size(width = 48.dp, height = 50.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .then(
+                when {
+                    !enabled -> Modifier.background(colors.GlassFill.copy(alpha = 0.15f))
+                    primary -> Modifier.background(
+                        brush = Brush.verticalGradient(
+                            listOf(colors.Accent, colors.AccentVariant)
+                        ),
+                        RoundedCornerShape(12.dp)
+                    )
+                    else -> Modifier
+                        .background(colors.GlassFill.copy(alpha = 0.3f))
+                        .border(
+                            0.5.dp,
+                            colors.GlassEdge.copy(alpha = 0.5f),
+                            RoundedCornerShape(12.dp)
+                        )
+                }
+            )
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
+        contentAlignment = Alignment.Center
+    ) {
         Text(
-            icon,
-            color = icColor,
-            fontSize = 24.sp,
-            fontWeight = FontWeight.SemiBold
+            text,
+            color = when {
+                !enabled -> colors.ButtonDisabledText
+                primary -> colors.TextOnAccent
+                else -> colors.TextPrimary
+            },
+            fontSize = 22.sp,
+            fontWeight = if (primary) FontWeight.ExtraBold else FontWeight.SemiBold
         )
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// AI 开关 Chip（Material 标准 Switch，不自己画花按钮）
-// ══════════════════════════════════════════════════════════════════════════════
+// ================================================================
+// AI 开关 — 文字 "AI" + 标准 Switch
+// ================================================================
 @Composable
-private fun AiToggleChip(state: GameState, onClick: () -> Unit) {
+private fun AiSwitchText(state: GameState, onClick: () -> Unit) {
     val colors = LocalThemeColors.current
-    val engineOn = state.isEngineReady
+    val on = state.isEngineReady
     Row(
         Modifier
-            .height(54.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .height(50.dp)
+            .clip(RoundedCornerShape(14.dp))
             .background(colors.GlassFill.copy(alpha = 0.35f))
+            .border(0.5.dp, colors.GlassEdge.copy(alpha = 0.55f), RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         Text(
-            text = if (engineOn) "开" else "关",
+            "AI",
             color = colors.TextPrimary,
-            fontSize = 14.sp,
+            fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold
         )
         Switch(
-            checked = engineOn,
-            onCheckedChange = null,   // 外层整行 clickable 处理
+            checked = on,
+            onCheckedChange = null,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = colors.Accent,
                 checkedTrackColor = colors.Accent.copy(alpha = 0.45f),
@@ -555,9 +667,13 @@ private fun AiToggleChip(state: GameState, onClick: () -> Unit) {
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// 胜率画布（支持 侧(双方/黑/白) × 轴(胜率/目差) 选择）
-// ══════════════════════════════════════════════════════════════════════════════
+// ================================================================
+// 走势图 Canvas
+//   - Y轴：左/右 双100-0数字，大号黑粗体
+//   - X轴：底 0,1,2,...N 手数 大字
+//   - 折线每个点 下标胜率数字
+//   - currentMoveIndex 位置画红色垂直分割线
+// ================================================================
 @Composable
 private fun WinRateCanvas(
     state: GameState,
@@ -567,143 +683,188 @@ private fun WinRateCanvas(
 ) {
     val colors = LocalThemeColors.current
     val rawPoints: List<Float> = state.winrateHistory
-    val wPoints = rawPoints.map { value -> if (value <= 0f) Float.NaN else value }
+    val wPoints = rawPoints.map { v -> if (v <= 0f) Float.NaN else v }
 
-    val showWinrate = axisSel == 0        // 0=胜率 / 1=目差
-    // 对于 axis=1（目差），近似把 (wr - 0.5) * 目差缩放
+    val showWinrate = axisSel == 0
     val points: List<Float> = if (showWinrate) {
         wPoints
     } else {
         wPoints.map { w ->
-            if (w.isNaN()) Float.NaN else (w - 0.5f) * 24f   // 近似映射 ~ ±12 目
+            if (w.isNaN()) Float.NaN else (w - 0.5f) * 24f
         }
     }
-
-    // 轴范围
     val yLo: Float; val yHi: Float
-    if (showWinrate) {
-        yLo = 0.0f; yHi = 1.0f
-    } else {
-        yLo = -12f; yHi = 12f
-    }
+    if (showWinrate) { yLo = 0.0f; yHi = 1.0f } else { yLo = -12f; yHi = 12f }
 
     val colorBlack = colors.BlackStone
-    val colorWhite = colors.WhiteStone
-    val dividerColor = Color.White.copy(alpha = 0.55f)
+    val colorWhite = Color.White
+    val divider = Color.White.copy(alpha = 0.7f)
+    val textBlack = Color.Black
 
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
+        val leftPad = 48.dp.toPx()
+        val rightPad = 48.dp.toPx()
+        val botPad = 36.dp.toPx()
+        val topPad = 6.dp.toPx()
+        val chartW = (w - leftPad - rightPad).coerceAtLeast(1f)
+        val chartH = (h - topPad - botPad).coerceAtLeast(1f)
+        val yRange = (yHi - yLo).coerceAtLeast(0.0001f)
 
-        // Draw y-axis labels and grid: 50, 60, 70, 80, 90, 100
-        val paint = Paint().apply {
-            textSize = 13.sp.toPx()
-            color = dividerColor.toArgb()
+        val yLabelPaint = Paint().apply {
+            textSize = 22.sp.toPx()
+            color = textBlack.toArgb()
             isAntiAlias = true
-            textAlign = Paint.Align.LEFT
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            textAlign = Paint.Align.RIGHT
         }
-        val dash = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
-        val yTicks = (5..10 step 1).map { it * 10 } // 50 60 ... 100
-        drawLine(
-            start = Offset(30.dp.toPx(), 0f),
-            end = Offset(30.dp.toPx(), h),
-            color = dividerColor, strokeWidth = 0.8.dp.toPx()
-        )
-        drawLine(
-            start = Offset(0f, h - 20.dp.toPx()),
-            end = Offset(w, h - 20.dp.toPx()),
-            color = dividerColor, strokeWidth = 0.8.dp.toPx()
-        )
+        val yLabelRPaint = Paint(yLabelPaint).apply { textAlign = Paint.Align.LEFT }
+        val xLabelPaint = Paint(yLabelPaint).apply {
+            textSize = 18.sp.toPx()
+            textAlign = Paint.Align.CENTER
+        }
+        val valuePaint = Paint(yLabelPaint).apply {
+            textSize = 13.sp.toPx()
+            color = textBlack.toArgb()
+            textAlign = Paint.Align.CENTER
+        }
+        val dash = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
 
-        yTicks.forEach { t ->
-            // y% 在左侧
-            val tFrac = when {
-                showWinrate -> (yHi - (t.toFloat() / 100f)) / (yHi - yLo)
-                else -> {
-                    // 胜率标签，在胜率轴下才显示
-                    0.5f
-                }
+        // 绘制 Y 轴横线（每 10% 一格，共0–100，11条）+ Y轴数字
+        for (i in 0..10) {
+            val pct = i * 10
+            val fracVal = if (showWinrate) (pct / 100f) else {
+                // 目差模式：对应纵轴 -12, -9, -6 … 12
+                val step = -12f + i * (24f / 10f)
+                step
             }
-            val y = (h - 20.dp.toPx()) * tFrac
+            val yFrac: Float = (yHi - fracVal) / yRange   // 上大下小
+            val y = topPad + chartH * yFrac.coerceIn(0f, 1f)
+
+            // 虚线
+            drawLine(
+                start = Offset(leftPad, y),
+                end = Offset(w - rightPad, y),
+                color = divider,
+                strokeWidth = 0.8.dp.toPx(),
+                pathEffect = dash
+            )
+            // Y 轴数字（左右都画）
             if (showWinrate) {
-                drawLine(
-                    start = Offset(30.dp.toPx(), y),
-                    end = Offset(w, y),
-                    color = dividerColor, strokeWidth = 0.7.dp.toPx(),
-                    pathEffect = dash
-                )
                 drawIntoCanvas { c ->
-                    c.nativeCanvas.drawText("$t", 0f, y + 4.dp.toPx(), paint)
-                    // 右侧 y 轴同步
-                    paint.textAlign = Paint.Align.RIGHT
-                    c.nativeCanvas.drawText("$t", w, y + 4.dp.toPx(), paint)
-                    paint.textAlign = Paint.Align.LEFT
+                    yLabelPaint.textAlign = Paint.Align.RIGHT
+                    c.nativeCanvas.drawText(
+                        "$pct",
+                        leftPad - 6.dp.toPx(),
+                        y + 6.dp.toPx(),
+                        yLabelPaint
+                    )
+                    c.nativeCanvas.drawText(
+                        "$pct",
+                        w - rightPad + 6.dp.toPx(),
+                        y + 6.dp.toPx(),
+                        yLabelRPaint
+                    )
                 }
             }
         }
-        // 50 虚线中线（胜率）
-        if (showWinrate) {
-            val y50 = (h - 20.dp.toPx()) * 0.5f
+        // X 轴底线 + Y轴左线
+        drawLine(
+            start = Offset(leftPad, h - botPad),
+            end = Offset(w - rightPad, h - botPad),
+            color = divider, strokeWidth = 1.dp.toPx()
+        )
+        drawLine(
+            start = Offset(leftPad, topPad),
+            end = Offset(leftPad, h - botPad),
+            color = divider, strokeWidth = 1.dp.toPx()
+        )
+
+        // X 轴数字：0,1,2,... max(points.size, 10)
+        val totalN = points.size.coerceAtLeast(2)
+        val xTicksN = totalN.coerceAtMost(11)
+        for (i in 0 until xTicksN) {
+            val xFrac = i.toFloat() / (xTicksN - 1)
+            val x = leftPad + chartW * xFrac
+            val idx = (xFrac * (totalN - 1)).toInt().coerceIn(0, totalN - 1)
+            // 底部 X 数字（手数 idx）
+            drawIntoCanvas { c ->
+                c.nativeCanvas.drawText(
+                    "$idx",
+                    x,
+                    h - 6.dp.toPx(),
+                    xLabelPaint
+                )
+            }
+        }
+
+        // 红色分割线：currentMoveIndex 位置
+        val cur = (state.analysisMoveIndex - 1).coerceAtLeast(0)
+        if (points.isNotEmpty() && cur < points.size) {
+            val xF = (cur.toFloat() + 0.5f) / points.size
+            val x = leftPad + chartW * xF.coerceIn(0f, 1f)
             drawLine(
-                start = Offset(30.dp.toPx(), y50),
-                end = Offset(w, y50),
-                color = Color.Black.copy(alpha = 0.5f), strokeWidth = 1.2.dp.toPx()
-            )
-        } else {
-            // 目差中线 0
-            val y0 = (h - 20.dp.toPx()) * (yHi - 0f) / (yHi - yLo)
-            drawLine(
-                start = Offset(30.dp.toPx(), y0),
-                end = Offset(w, y0),
-                color = Color.Black.copy(alpha = 0.5f), strokeWidth = 1.2.dp.toPx()
+                start = Offset(x, topPad),
+                end = Offset(x, h - botPad),
+                color = Color(0xFFE23B3B),
+                strokeWidth = 1.2.dp.toPx(),
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 4f), 0f)
             )
         }
 
-        // Draw winrate line
+        // 画折线 + 每个点下面标数值
         val countVal: Int = points.size
-        if (countVal >= 2) {
-            var lastValidX = -1f
-            var lastValidY = -1f
-            val countF: Float = countVal.toFloat()
-            val leftPad = 30.dp.toPx()
-            val chartW = (w - leftPad).coerceAtLeast(1f)
-            val chartH = (h - 20.dp.toPx()).coerceAtLeast(1f)
-            val yRange = (yHi - yLo).coerceAtLeast(0.0001f)
-
+        if (countVal >= 1) {
+            var lastX = -1f
+            var lastY = -1f
             for (i in 0 until countVal) {
-                val xFrac: Float = (i.toFloat() + 0.5f) / countF
-                val x: Float = leftPad + xFrac * chartW
-                val v: Float = points[i]
+                val xFrac = (i.toFloat() + 0.5f) / countVal.toFloat()
+                val x = leftPad + chartW * xFrac
+                val v = points[i]
                 if (!v.isNaN()) {
-                    val clamped: Float = v.coerceIn(yLo, yHi)
-                    val yFrac: Float = (yHi - clamped) / yRange
-                    val y: Float = chartH * yFrac
+                    val clamped = v.coerceIn(yLo, yHi)
+                    val yFrac = (yHi - clamped) / yRange
+                    val y = topPad + chartH * yFrac.coerceIn(0f, 1f)
 
-                    if (lastValidX >= 0f) {
-                        val prevVal: Float = points[i - 1]
-                        val cMid: Float = if (!prevVal.isNaN()) {
-                            (clamped + prevVal) * 0.5f
-                        } else {
-                            clamped
-                        }
-                        val threshold: Float = if (showWinrate) 0.5f else 0f
+                    if (lastX >= 0f) {
+                        val prevV = points[i - 1]
+                        val mid = if (!prevV.isNaN()) (clamped + prevV) * 0.5f else clamped
+                        val threshold = if (showWinrate) 0.5f else 0f
                         val lineColor = when (sideSel) {
                             1 -> colorBlack
-                            2 -> Color.White
-                            else -> if (cMid >= threshold) colorBlack else Color.White
+                            2 -> colorWhite
+                            else -> if (mid >= threshold) colorBlack else colorWhite
                         }
                         drawLine(
-                            start = Offset(lastValidX, lastValidY),
+                            start = Offset(lastX, lastY),
                             end = Offset(x, y),
                             color = lineColor,
-                            strokeWidth = 2.2.dp.toPx()
+                            strokeWidth = 2.4.dp.toPx()
                         )
                     }
-                    lastValidX = x
-                    lastValidY = y
+                    // 点下面标数值（隔2-3个标1个避免太密）
+                    if (countVal <= 20 || i % 3 == 0 || i == countVal - 1) {
+                        val disp = if (showWinrate) {
+                            "%.2f".format(clamped * 100f)
+                        } else {
+                            if (clamped >= 0) "+%.2f".format(clamped)
+                            else "%.2f".format(clamped)
+                        }
+                        drawIntoCanvas { c ->
+                            c.nativeCanvas.drawText(
+                                disp,
+                                x,
+                                (y + 14.dp.toPx()).coerceAtMost(h - botPad - 2.dp.toPx()),
+                                valuePaint
+                            )
+                        }
+                    }
+                    lastX = x
+                    lastY = y
                 } else {
-                    lastValidX = -1f
-                    lastValidY = -1f
+                    lastX = -1f
+                    lastY = -1f
                 }
             }
         }
