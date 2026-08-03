@@ -193,55 +193,18 @@ fun AnalysisFooter(
                 .padding(6.dp)
         ) {
             when (selectedTab) {
-                // ─── 落子树 ───
+                // ─── 落子树（未实现：先留空不造假） ───
                 AnalysisTab.MOVE_TREE -> {
-                    // 节点树简化版：当前节点的位置卡片（S 节点截图）
-                    Row(
-                        Modifier
-                            .fillMaxSize()
-                            .padding(6.dp),
-                        verticalAlignment = Alignment.Top
+                    Box(
+                        Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Column(
-                            Modifier
-                                .height(44.dp)
-                                .width(56.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    brush = Brush.horizontalGradient(
-                                        listOf(
-                                            colors.AccentLight,
-                                            colors.AccentLight.copy(alpha = 0.7f)
-                                        )
-                                    ),
-                                    shape = RoundedCornerShape(10.dp)
-                                )
-                                .border(1.2.dp, colors.Accent.copy(alpha = 0.7f), RoundedCornerShape(10.dp)),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Text(
-                                "S",
-                                color = colors.TextPrimary,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        Column(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(top = 12.dp),
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Text(
-                                "长按可编辑解说",
-                                color = colors.TextSecondary,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Medium,
-                                lineHeight = 22.sp
-                            )
-                        }
+                        Text(
+                            "落子树",
+                            color = colors.TextSecondary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 }
 
@@ -320,14 +283,12 @@ fun AnalysisFooter(
                                 .fillMaxWidth()
                                 .weight(1f)
                                 .padding(horizontal = 6.dp, vertical = 4.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            Color(0xFF6F7276),
-                                            Color(0xFF9A9DA1)
-                                        )
-                                    )
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(colors.GlassFillStrong)
+                                .border(
+                                    0.6.dp,
+                                    colors.GlassEdge.copy(alpha = 0.55f),
+                                    RoundedCornerShape(16.dp)
                                 )
                         ) {
                             WinRateCanvas(
@@ -390,112 +351,53 @@ fun AnalysisFooter(
                                     .background(bg)
                                     .padding(horizontal = 10.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                // 序号：彩色圆圈（黄/绿/青/米）
-                                val rankColor = when (i) {
-                                    0 -> Color(0xFFFFD93D)
-                                    1 -> Color(0xFF3CCF4E)
-                                    2 -> Color(0xFF31D3F5)
-                                    3 -> Color(0xFFE8C98C)
-                                    4 -> Color(0xFFD6B98C)
-                                    else -> colors.TextSecondary.copy(alpha = 0.6f)
-                                }
+                                // 序号：统一灰色文字
                                 Box(
-                                    Modifier
-                                        .weight(0.9f),
+                                    Modifier.weight(0.9f),
                                     contentAlignment = Alignment.CenterStart
                                 ) {
-                                    Box(
-                                        Modifier
-                                            .size(28.dp)
-                                            .clip(CircleShape)
-                                            .background(rankColor)
-                                            .border(1.dp, Color.Black.copy(alpha = 0.2f), CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            "${i + 1}",
-                                            color = if (i <= 2) Color.Black else Color.White,
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.ExtraBold
-                                        )
-                                    }
+                                    Text(
+                                        "${i + 1}",
+                                        color = colors.TextPrimary,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
                                 }
-                                val weights = listOf(1.3f, 1.1f, 1.0f, 1.1f, 1.1f)
                                 val (ptX, ptY) = pt
                                 val coord = runCatching {
                                     val size = state.board.size
-                                    val sb = StringBuilder()
                                     val letter = "ABCDEFGHJKLMNOPQRST"[ptX]
-                                    sb.append(letter)
-                                    sb.append(size - ptY)
-                                    sb.toString()
+                                    "${letter}${size - ptY}"
                                 }.getOrElse { colNames.getOrElse(i) { "${ptX},${ptY}" } }
                                 val winrateStr = "${"%.2f".format(wr * 100f)}%"
-                                val leadStr = (i % 3 - 1).toFloat().let { n -> "${if (n > 0) "+" else ""}${"%.2f".format(n)}" }
+                                val leadVal = (i % 3 - 1).toFloat()
+                                val leadStr = "${if (leadVal > 0) "+" else ""}${"%.2f".format(leadVal)}"
                                 val playouts = 28 - (i * 3).coerceAtMost(20)
-                                val complexity = "23." + ((7 - (i % 2)) % 9)
-                                Row(
-                                    Modifier.weight(1.3f),
-                                    content = {
+                                val complexity = "23.${(7 - (i % 2)) % 9}"
+                                val cells: List<Pair<Float, String>> = listOf(
+                                    1.3f to coord,
+                                    1.1f to winrateStr,
+                                    1.0f to leadStr,
+                                    1.1f to "$playouts",
+                                    1.1f to complexity
+                                )
+                                cells.forEach { (w, t) ->
+                                    Box(
+                                        Modifier.weight(w),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
                                         Text(
-                                            coord,
+                                            t,
                                             color = colors.TextPrimary,
-                                            fontSize = 16.sp,
+                                            fontSize = 15.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             fontFamily = FontFamily.Monospace
                                         )
                                     }
-                                )
-                                Row(
-                                    Modifier.weight(1.1f),
-                                    content = {
-                                        Text(
-                                            winrateStr,
-                                            color = colors.TextPrimary,
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                    }
-                                )
-                                Row(
-                                    Modifier.weight(1.0f),
-                                    content = {
-                                        Text(
-                                            leadStr,
-                                            color = colors.TextPrimary,
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                    }
-                                )
-                                Row(
-                                    Modifier.weight(1.1f),
-                                    content = {
-                                        Text(
-                                            "$playouts",
-                                            color = colors.TextPrimary,
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                    }
-                                )
-                                Row(
-                                    Modifier.weight(1.1f),
-                                    content = {
-                                        Text(
-                                            complexity,
-                                            color = colors.TextPrimary,
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                    }
-                                )
+                                }
                             }
                         }
                     }
@@ -526,7 +428,7 @@ fun AnalysisFooter(
             }
         }
 
-        // Row 1
+        // Row 1 — 无emoji，纯Unicode/几何符号
         Row(
             Modifier
                 .fillMaxWidth()
@@ -535,13 +437,13 @@ fun AnalysisFooter(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            ToolbarIcon("\u270B", label = "Pass", onClick = onPass)          // ✋ 停一手
-            ToolbarIcon("\uD83D\uDC46", label = "Hint", onClick = onHint)   // 👆
-            ToolbarIcon("\u23EA", label = "◀◀", onClick = onPrev)          // ⏪
-            ToolbarIcon("\u25B6", label = "▶", onClick = onNext, accent = true)  // ▶
-            ToolbarIcon("\u23E9", label = "▶▶", onClick = { /* next var */ }) // ⏩
-            ToolbarIcon("\uD83D\uDC41", label = "Eye", onClick = onToggleEye)  // 👁
-            ToolbarIcon("\u2699", label = "Cfg", onClick = onShowSettings)  // ⚙ 设置
+            ToolbarIcon("P", label = "Pass", onClick = onPass)                // Pass
+            ToolbarIcon("?", label = "Hint", onClick = onHint)                // Hint
+            ToolbarIcon("|◀", label = "◀◀", onClick = onPrev)                 // Prev var
+            ToolbarIcon("▶", label = "▶", onClick = onNext, primary = true)   // Play / Next
+            ToolbarIcon("▶|", label = "▶▶", onClick = {})                     // Next var
+            ToolbarIcon("◉", label = "Eye", onClick = onToggleEye)            // Eye
+            ToolbarIcon("⚙", label = "Cfg", onClick = onShowSettings)         // Settings
         }
         // Row 2
         Row(
@@ -552,19 +454,19 @@ fun AnalysisFooter(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            ToolbarIcon("\u2726", label = "Br", onClick = onNewGame)          // ✦ 新开局
-            ToolbarIcon("\u2702", label = "Cut", onClick = onResign)          // ✂ 剪/认输
-            ToolbarIcon("\u25C0", label = "◀", onClick = onUndo)              // ◀ 悔棋
-            ToolbarIcon("\u25B6", label = "▶", onClick = onNext, accent = false)  // ▶
-            ToolbarIcon("\uD83E\uDDEE", label = "Cal", onClick = onTerritoryEstimate) // 🧮 形势
-            AiToggleChip(state = state, onClick = onNewGame)
-            ToolbarIcon("\uD83D\uDCC4", label = "Nd", onClick = {})           // 📄 新节点
+            ToolbarIcon("✚", label = "New", onClick = onNewGame)              // New (branch)
+            ToolbarIcon("✂", label = "Cut", onClick = onResign)               // Cut
+            ToolbarIcon("◀", label = "◀", onClick = onUndo)                   // Back
+            ToolbarIcon("▶", label = "▶", onClick = onNext)                   // Forward
+            ToolbarIcon("▦", label = "Terr", onClick = onTerritoryEstimate)   // Territory
+            AiToggleChip(state = state, onClick = onNewGame)                  // AI Switch
+            ToolbarIcon("§", label = "Node", onClick = {})                    // Node info
         }
     }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 工具栏图标按钮（44dp，仿阿Q截图）
+// 工具栏图标按钮（纯符号，无彩色Emoji）
 // ══════════════════════════════════════════════════════════════════════════════
 @Composable
 private fun ToolbarIcon(
@@ -572,6 +474,7 @@ private fun ToolbarIcon(
     label: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
+    primary: Boolean = false,
     accent: Boolean = false,
     tintColor: Color? = null
 ) {
@@ -579,81 +482,76 @@ private fun ToolbarIcon(
     Column(
         Modifier
             .size(54.dp, 54.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .clip(RoundedCornerShape(14.dp))
+            .then(
+                when {
+                    !enabled -> Modifier.background(
+                        colors.GlassFill.copy(alpha = 0.12f),
+                        RoundedCornerShape(14.dp)
+                    )
+                    primary -> Modifier
+                        .background(
+                            brush = Brush.verticalGradient(
+                                listOf(colors.Accent, colors.AccentVariant)
+                            ),
+                            RoundedCornerShape(14.dp)
+                        )
+                        .clickable(onClick = onClick)
+                    else -> Modifier.clickable(onClick = onClick)
+                }
+            )
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         val icColor = tintColor ?: when {
-            accent -> colors.Accent
             !enabled -> colors.ButtonDisabledText
+            primary -> colors.TextOnAccent
+            accent -> colors.Accent
             else -> colors.TextPrimary
         }
         Text(
             icon,
             color = icColor,
-            fontSize = 26.sp,
+            fontSize = 24.sp,
             fontWeight = FontWeight.SemiBold
         )
     }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// AI 开关 Chip（截图倒数第2个：开 / 关 + 圆形旋钮）
+// AI 开关 Chip（Material 标准 Switch，不自己画花按钮）
 // ══════════════════════════════════════════════════════════════════════════════
 @Composable
 private fun AiToggleChip(state: GameState, onClick: () -> Unit) {
     val colors = LocalThemeColors.current
-    val enabled = state.isEngineReady && !state.isThinking
-    val on = enabled
-    val knobBg = if (on) colors.Accent else Color(0xFF0E7A9B)
-    val railBg = if (on) Color(0xFFFFE0E9) else Color(0xFFE1E5EA)
+    val engineOn = state.isEngineReady
     Row(
         Modifier
-            .size(110.dp, 54.dp)
-            .clip(RoundedCornerShape(32.dp))
-            .background(railBg)
+            .height(54.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(colors.GlassFill.copy(alpha = 0.35f))
             .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = if (on) Arrangement.End else Arrangement.Start
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        // 文字（开/关）根据位置
-        if (!on) {
-            Text(
-                "开",
-                color = colors.TextPrimary,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 12.dp)
+        Text(
+            text = if (engineOn) "开" else "关",
+            color = colors.TextPrimary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Switch(
+            checked = engineOn,
+            onCheckedChange = null,   // 外层整行 clickable 处理
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = colors.Accent,
+                checkedTrackColor = colors.Accent.copy(alpha = 0.45f),
+                uncheckedThumbColor = colors.TextSecondary,
+                uncheckedTrackColor = colors.GlassEdge.copy(alpha = 0.5f)
             )
-        }
-        Box(
-            Modifier
-                .size(42.dp)
-                .clip(CircleShape)
-                .background(knobBg),
-            contentAlignment = Alignment.Center
-        ) {
-            if (on) {
-                Box(
-                    Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.4f))
-                )
-            }
-        }
-        if (on) {
-            Text(
-                "关",
-                color = colors.TextPrimary,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(end = 12.dp)
-            )
-        }
+        )
     }
 }
 

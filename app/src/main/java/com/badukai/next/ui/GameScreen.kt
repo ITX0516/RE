@@ -547,7 +547,7 @@ private fun GlassIconBtn(
 }
 
 // ──────────────────────────────────────────────
-// TopBar Action Icon Button (仿阿Q截图：☰/📂/💾/🔗/A❌ 这种 48dp 图标方形按钮)
+// TopBar Action Icon Button — 简薄圆角按钮，不堆厚玻璃
 // ──────────────────────────────────────────────
 @Composable
 private fun TopBarActionBtn(
@@ -558,31 +558,33 @@ private fun TopBarActionBtn(
     val colors = LocalThemeColors.current
     Box(
         Modifier
-            .size(44.dp)
+            .size(46.dp)
             .then(
-                if (enabled) Modifier
-                    .glassSurface(
-                        shape = RoundedCornerShape(12.dp),
-                        intensity = GlassIntensity.CARD,
-                        accentRim = false,
-                        addShadow = false
-                    )
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable(onClick = onClick)
-                else Modifier
-                    .glassSurface(
-                        shape = RoundedCornerShape(12.dp),
-                        intensity = GlassIntensity.THIN,
-                        addShadow = false
-                    )
-                    .clip(RoundedCornerShape(12.dp))
-            ),
+                if (enabled)
+                    Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            colors.GlassFill.copy(alpha = 0.35f),
+                            RoundedCornerShape(12.dp)
+                        )
+                        .border(
+                            0.6.dp,
+                            colors.GlassEdge.copy(alpha = 0.55f),
+                            RoundedCornerShape(12.dp)
+                        )
+                        .clickable(onClick = onClick)
+                else
+                    Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.GlassFill.copy(alpha = 0.18f))
+            )
+            .padding(horizontal = 2.dp, vertical = 2.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             icon,
             color = if (enabled) colors.TextPrimary else colors.ButtonDisabledText,
-            fontSize = 22.sp,
+            fontSize = 21.sp,
             fontWeight = FontWeight.Medium
         )
     }
