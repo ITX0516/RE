@@ -133,9 +133,20 @@ object ModelManager {
         return if (preferPlaintext) File(dir, MODEL_FILENAME_TXT) else File(dir, MODEL_FILENAME)
     }
 
-    /** BUNDLED_ASSET *.bin renamed form (post-build aapt2 workaround). */
+    /**
+     * BUNDLED_ASSET filesDir copy target.
+     *
+     * CRITICAL: The filesDir copy MUST have .txt.gz extension — KataGo uses
+     * the filename extension to dispatch the model parser:
+     *   .txt.gz → gzip text parser  ✅ (our model IS gzip text)
+     *   .bin    → binary model parser ❌ (different format → "Model failed
+     *             to parse name or version" error, KataGo v1.16.0)
+     *
+     * The ASSET inside the APK can be .bin (to defeat aapt2's .gz decompressor),
+     * but when we copy it to filesDir we MUST rename it back to .txt.gz.
+     */
     fun bundledBinFile(context: Context): File =
-        File(File(getModelsDir(context), ASSET_COPY_DIR_NAME), MODEL_FILENAME_BIN)
+        File(File(getModelsDir(context), ASSET_COPY_DIR_NAME), MODEL_FILENAME)
 
     /** CUSTOM: filesDir/models/custom/ — app-private stable copies */
     fun customDir(context: Context): File =
@@ -154,20 +165,15 @@ object ModelManager {
         customStoredPath: String?
     ): File = when (source) {
         ModelSource.BUNDLED_ASSET -> {
-            // 2026-08-02 Tie-break order:
-            //   1) *.bin renamed aapt2-workaround form (preferred after F2 fix)
-            //   2) *.txt.gz legacy gzip form
-            //   3) *.txt   aapt2-auto-decompressed plaintext form
-            // The "else" branch (none found) falls back to *.bin — after we
-            // ship the F2 fix that's the only form that will ever be built.
-            val bin = bundledBinFile(context)
+            // ensureBundledCopied always writes .txt.gz to filesDir (regardless
+            // of whether the APK asset was .bin, .txt.gz, or .txt). Check
+            // .txt.gz first since that's the canonical KataGo-compatible name.
             val gz = bundledFile(context, preferPlaintext = false)
             val txt = bundledFile(context, preferPlaintext = true)
             when {
-                bin.exists() && isValidModelFile(bin) -> bin
                 gz.exists()  && isValidModelFile(gz)  -> gz
                 txt.exists() && isValidModelFile(txt) -> txt
-                else -> bin
+                else -> gz
             }
         }
         ModelSource.DOWNLOADED -> downloadedFile(context)
@@ -316,6 +322,16 @@ object ModelManager {
                         "OR models/$MODEL_FILENAME (gz, ${EXPECTED_6B_GZ_BYTES}B) " +
                         "OR models/$MODEL_FILENAME_TXT (txt, ${EXPECTED_6B_TXT_BYTES}B)."
                 ))
+
+            // Clean up stale .bin cache from old builds (pre-2026-08-03 builds
+            // wrote .bin to filesDir, which KataGo tried to parse as binary
+            // format → "Model failed to parse name or version"). The correct
+            // filesDir name is .txt.gz (KataGo's gzip text parser dispatch).
+            val staleBin = File(File(getModelsDir(context), ASSET_COPY_DIR_NAME), MODEL_FILENAME_BIN)
+            if (staleBin.exists()) {
+                AppLogger.i(TAG, "ensureBundledCopied: removing stale .bin cache (wrong KataGo parser dispatch)")
+                runCatching { staleBin.delete() }
+            }
 
             // Fast-path: a cached copy on disk already matches this form & is valid.
             val target = form.targetFactory(context)

@@ -112,11 +112,18 @@ copy_dir  "$SRC_APP/assets/models"          "$DST_APP/assets/models"
 #       nnBackend that successfully initializes (CPU / TFLite-CPU /
 #       etc.), which works on all Android SoCs.
 # ====================================================================
-stage P0-runtimecfg "Patch gtp_static.cfg for Android runtime reliability (logToStderr=true, remove forced OpenCL device pins)"
+stage P0-runtimecfg "Patch gtp_static.cfg for Android runtime reliability (logToStderr=true, verbose logs OFF, remove forced OpenCL device pins)"
 CFG="$DST_APP/assets/gtp_static.cfg"
 if [ -f "$CFG" ]; then
-    # P0-runtimecfg-A
+    # P0-runtimecfg-A: logToStderr=false → true (so errors reach ProcessBuilder.stderr)
     sed -i.bak -E 's/^([[:space:]]*logToStderr[[:space:]]*=[[:space:]]*)false[[:space:]]*$/\1true/' "$CFG" && rm -f "$CFG.bak"
+    # P0-runtimecfg-A2: logAllGTPCommunication=true → false
+    # P0-runtimecfg-A3: logSearchInfo=true → false
+    # These generate enormous per-search-iteration output that fills the 64KB
+    # stderr pipe buffer, blocking KataGo writes and freezing the engine
+    # after ~10 moves on real devices.
+    sed -i.bak -E 's/^([[:space:]]*logAllGTPCommunication[[:space:]]*=[[:space:]]*)true[[:space:]]*$/\1false/' "$CFG" && rm -f "$CFG.bak"
+    sed -i.bak -E 's/^([[:space:]]*logSearchInfo[[:space:]]*=[[:space:]]*)true[[:space:]]*$/\1false/' "$CFG" && rm -f "$CFG.bak"
     # P0-runtimecfg-B: comment all openclDeviceToUseThread lines; keep
     # line as documentation but do NOT force a device index.
     sed -i.bak -E 's/^([[:space:]]*)(openclDeviceToUseThread[0-9]+[[:space:]]*=.*)$/# RUNTIME-PATCH: no forced-OpenCL-device (CPU fallback enabled)\n#\1\2/' "$CFG" 2>/dev/null && rm -f "$CFG.bak" || true
@@ -124,8 +131,10 @@ if [ -f "$CFG" ]; then
     grep -Eq '^[[:space:]]*openclDeviceToUseThread' "$CFG" && {
         awk '$0 ~ /^[[:space:]]*openclDeviceToUseThread/ { print "# RUNTIME-PATCH: openclDevice force-assign commented to allow CPU fallback\n#" $0; next }1' "$CFG" > "${CFG}.new" && mv -v "${CFG}.new" "$CFG"
     } || true
-    echo "  After patch — $(grep -E '^logToStderr|^openclDeviceToUse' "$CFG" || echo "(no unpatched lines ✓)")"
+    echo "  After patch — logToStderr/logAllGTP/logSearchInfo/openclDevice:"
+    grep -E '^logToStderr|^logAllGTP|^logSearchInfo|^openclDeviceToUse' "$CFG" || echo "  (verbose logs OFF, openclDevice commented ✓)"
     grep -qE '^[[:space:]]*logToStderr[[:space:]]*=[[:space:]]*true' "$CFG" && echo "  [OK] logToStderr=true confirmed in patched cfg"
+    grep -qE '^[[:space:]]*logSearchInfo[[:space:]]*=[[:space:]]*false' "$CFG" && echo "  [OK] logSearchInfo=false confirmed (prevents stderr pipe flood)"
 fi
 
 echo ""

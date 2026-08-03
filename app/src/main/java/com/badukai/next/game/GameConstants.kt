@@ -24,8 +24,8 @@ object GameConstants {
     /** Territory ownership threshold for "settled" */
     const val TERRITORY_THRESHOLD = 0.15f
 
-    /** GTP command timeout for regular commands (ms) */
-    const val GTP_TIMEOUT_DEFAULT = 5000
+    /** GTP command timeout for regular commands (ms) — 15s for complex positions */
+    const val GTP_TIMEOUT_DEFAULT = 15000
     /** GTP command timeout for final_score (needs more time) */
     const val GTP_TIMEOUT_SCORE = 10000
     /** GTP command timeout for genmove (needs the most time) */
