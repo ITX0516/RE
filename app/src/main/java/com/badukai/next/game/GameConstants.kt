@@ -26,10 +26,10 @@ object GameConstants {
 
     /** GTP command timeout for regular commands (ms) — 15s for complex positions */
     const val GTP_TIMEOUT_DEFAULT = 15000
-    /** GTP command timeout for final_score (needs more time) */
-    const val GTP_TIMEOUT_SCORE = 10000
-    /** GTP command timeout for genmove (needs the most time) */
-    const val GTP_TIMEOUT_GENMOVE = 60000
+    /** GTP command timeout for final_score (full-board scoring can be slow) */
+    const val GTP_TIMEOUT_SCORE = 30000
+    /** GTP command timeout for genmove — must exceed AI_MOVE_TIME_MAX (120s) + lag buffer */
+    const val GTP_TIMEOUT_GENMOVE = 130000
     /** GTP command timeout for lz-analyze protocol_version flush */
     const val GTP_TIMEOUT_FLUSH = 1500
 

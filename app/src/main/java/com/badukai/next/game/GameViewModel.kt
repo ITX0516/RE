@@ -157,9 +157,11 @@ class GameViewModel : ViewModel() {
                 val customPath: String? = settingsStore.customModelPath.takeIf { it.isNotBlank() }
                 val success = engine.start(source = source, customStoredPath = customPath, legacyModel = model)
                 if (success) {
+                    // Restore the CURRENT game state (not defaults) so engine
+                    // restart on weight-source switch doesn't lose komi/boardSize.
                     engine.setBoardSize(_state.value.boardSize)
                     engine.clearBoard()
-                    engine.setKomi(GameConstants.DEFAULT_KOMI)
+                    engine.setKomi(_state.value.komi)
                     engine.sendCommand("time_settings 0 ${_state.value.aiMoveTimeSeconds} 1")
                     val msg: String = when (source) {
                         ModelSource.BUNDLED_ASSET -> "Ready (内置 6b，离线可用)"
@@ -205,6 +207,23 @@ class GameViewModel : ViewModel() {
             isEngineReady = false,
             isEngineStarting = false
         )
+    }
+
+    /**
+     * Suspend version of stopEngine for use inside coroutines where the caller
+     * needs to be sure the engine is fully stopped before proceeding (e.g.
+     * before startEngine on source switch). Cancels in-flight reader jobs and
+     * waits for the process to exit.
+     */
+    private suspend fun stopEngineAwait() {
+        engine?.stop()
+        _state.value = _state.value.copy(
+            isEngineReady = false,
+            isEngineStarting = false
+        )
+        // Give the native process time to fully exit so the next start()
+        // doesn't race with the old process's cleanup.
+        kotlinx.coroutines.delay(300)
     }
 
     fun onBoardTap(x: Int, y: Int) {
@@ -597,8 +616,10 @@ class GameViewModel : ViewModel() {
         // Restart engine if it was running under a different weight source.
         if (_state.value.isEngineReady || _state.value.isEngineStarting) {
             AppLogger.i(TAG, "Weight source changed → restart engine.")
-            stopEngine()
-            startEngine()
+            viewModelScope.launch {
+                stopEngineAwait()
+                startEngine()
+            }
         }
     }
 
@@ -619,7 +640,7 @@ class GameViewModel : ViewModel() {
                     gameMessage = "自定义权重导入成功"
                 )
                 if (_state.value.isEngineReady || _state.value.isEngineStarting) {
-                    stopEngine(); startEngine()
+                    stopEngineAwait(); startEngine()
                 }
             } else {
                 val msg = res.exceptionOrNull()?.message ?: "unknown"
@@ -905,7 +926,8 @@ class GameViewModel : ViewModel() {
             engine?.sendCommand("time_settings 0 $aiTime 1")
 
             if (realHandicap > 0) {
-                // Place handicap stones via GTP
+                // Place handicap stones via GTP — await response to prevent
+                // genmove from racing ahead of fixed_handicap.
                 sendGtpCommand("fixed_handicap $realHandicap")
                 // Apply handicap on local board
                 val handicapPoints = getHandicapPoints(boardSize, realHandicap)
@@ -925,11 +947,10 @@ class GameViewModel : ViewModel() {
         }
     }
 
-    private fun sendGtpCommand(cmd: String) {
-        viewModelScope.launch {
-            engine?.sendCommand(cmd)
-            engine?.waitForResponse(5000)
-        }
+    private suspend fun sendGtpCommand(cmd: String): Boolean {
+        engine?.sendCommand(cmd) ?: return false
+        val resp = engine?.waitForResponse(GameConstants.GTP_TIMEOUT_DEFAULT) ?: ""
+        return resp.trimStart().startsWith("=")
     }
 
     private fun getHandicapPoints(boardSize: Int, handicap: Int): List<Point> {
@@ -957,7 +978,10 @@ class GameViewModel : ViewModel() {
 
     fun selectModel(model: KataGoEngine.Model) {
         _state.value = _state.value.copy(selectedModel = model, showModelSelector = false)
-        stopEngine(); startEngine(model)
+        viewModelScope.launch {
+            stopEngineAwait()
+            startEngine(model)
+        }
     }
 
     fun getSoundPlayer(): StoneSoundPlayer? = soundPlayer

@@ -318,7 +318,7 @@ class KataGoEngine(private val context: Context) {
                 (0 until r).joinToString(" ") { "%02x".format(b[it]) }
             }.getOrDefault("(read-failed)")
             diagLine("--- model_file ---")
-            diagLine("  path   = ${modelFile.absolutePath}  (badukai patched binary accepts .bin natively; no hint suffix alias needed)")
+            diagLine("  path   = ${modelFile.absolutePath}  (filesDir copy uses .txt.gz extension for KataGo gzip parser dispatch)")
             diagLine("  exists = ${modelFile.isFile}  readable = ${modelFile.canRead()}  size = ${modelFile.length()}")
             diagLine("  first-8-hex = ${firstHex(modelFile, 8)}")
             diagLine("--- config_file ---")
@@ -329,7 +329,7 @@ class KataGoEngine(private val context: Context) {
         run {
             val problems = mutableListOf<String>()
             if (!configFile.isFile || configFile.length() < 1000L || !configFile.canRead()) problems += "configFile invalid/missing (expect 7KB+ readable gtp cfg)"
-            if (!modelFile.isFile || !modelFile.canRead()) problems += "modelFile(source=$source) missing/unreadable (badukai patched KataGo natively supports .bin extension for gzip models — no alias needed)"
+            if (!modelFile.isFile || !modelFile.canRead()) problems += "modelFile(source=$source) missing/unreadable (filesDir copy must be .txt.gz for KataGo gzip parser)"
             diagLine("--- preflight ---")
             if (problems.isEmpty()) diagLine("  OK (pass)") else diagLine("  FAIL: ${problems.joinToString(" | ")}")
             if (problems.isNotEmpty()) {
@@ -450,9 +450,11 @@ class KataGoEngine(private val context: Context) {
         }
         AppLogger.i(TAG, "LD_LIBRARY_PATH = ${envBase["LD_LIBRARY_PATH"]}")
         AppLogger.i(TAG, "HOME = ${envBase["HOME"]}")
-        // 2026-08-02 FINAL ALIGNMENT WITH UPSTREAM:
-        //   - modelFile passed DIRECTLY as -model arg (name ends in .bin — BADUKAI
-        //     FORK NATIVE SUPPORT for .bin = gzip-compressed model; no alias layers)
+        // 2026-08-03 FINAL ALIGNMENT WITH UPSTREAM:
+        //   - modelFile passed DIRECTLY as -model arg. The filesDir copy MUST
+        //     end in .txt.gz — KataGo v1.16.0 uses filename extension to dispatch
+        //     model parser (.txt.gz → gzip text loader ✅, .bin → binary model
+        //     loader ❌ which fails with "Model failed to parse name or version").
         //   - subcommand ("gtp") BEFORE -model/-config (KataGo CLI order matches
         //     upstream: katago gtp -model M -config C)
         val gtpArgs = listOf("gtp", "-model", modelFile.absolutePath, "-config", configFile.absolutePath)

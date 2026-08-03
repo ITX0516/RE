@@ -124,6 +124,10 @@ if [ -f "$CFG" ]; then
     # after ~10 moves on real devices.
     sed -i.bak -E 's/^([[:space:]]*logAllGTPCommunication[[:space:]]*=[[:space:]]*)true[[:space:]]*$/\1false/' "$CFG" && rm -f "$CFG.bak"
     sed -i.bak -E 's/^([[:space:]]*logSearchInfo[[:space:]]*=[[:space:]]*)true[[:space:]]*$/\1false/' "$CFG" && rm -f "$CFG.bak"
+    # P0-runtimecfg-A4: allowResignation=true → false
+    # Client does not handle "resign" GTP response properly (treats as pass
+    # without telling engine → state desync mid-game).
+    sed -i.bak -E 's/^([[:space:]]*allowResignation[[:space:]]*=[[:space:]]*)true[[:space:]]*$/\1false/' "$CFG" && rm -f "$CFG.bak"
     # P0-runtimecfg-B: comment all openclDeviceToUseThread lines; keep
     # line as documentation but do NOT force a device index.
     sed -i.bak -E 's/^([[:space:]]*)(openclDeviceToUseThread[0-9]+[[:space:]]*=.*)$/# RUNTIME-PATCH: no forced-OpenCL-device (CPU fallback enabled)\n#\1\2/' "$CFG" 2>/dev/null && rm -f "$CFG.bak" || true
