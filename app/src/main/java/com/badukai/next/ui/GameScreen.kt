@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -78,7 +79,7 @@ fun GameScreen(
         modifier = modifier
             .fillMaxSize()
             .glassBackgroundGradient()
-            .padding(bottom = 14.dp),
+            .padding(bottom = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // ═══ Top bar: liquid-glass capsule ═══
@@ -167,12 +168,12 @@ fun GameScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         Modifier
-                            .size(12.dp)
+                            .size(14.dp)
                             .clip(CircleShape)
                             .background(colors.BlackStone)
                     )
-                    Spacer(Modifier.width(4.dp))
-                    Text("${state.capturedByBlack}", color = colors.TextSecondary, fontSize = 13.sp)
+                    Spacer(Modifier.width(5.dp))
+                    Text("${state.capturedByBlack}", color = colors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 }
 
                 Row(
@@ -186,17 +187,24 @@ fun GameScreen(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("${state.capturedByWhite}", color = colors.TextSecondary, fontSize = 11.sp)
-                    Spacer(Modifier.width(4.dp))
+                    Text("${state.capturedByWhite}", color = colors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.width(5.dp))
                     Box(
                         Modifier
-                            .size(12.dp)
+                            .size(14.dp)
                             .clip(CircleShape)
                             .background(colors.WhiteStone)
-                            .then(Modifier.border(0.5.dp, colors.WhiteStoneBorder, CircleShape))
+                            .border(0.5.dp, colors.WhiteStoneBorder, CircleShape)
                     )
                 }
-                // Quick action pills
+            }
+            // Line 3: Save / Load / Settings
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp),
+                horizontalArrangement = Arrangement.End
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -208,7 +216,7 @@ fun GameScreen(
             }
         }
 
-        // ═══ Win rate bar (glassed) ═══
+        // ═══ Win rate bar (improved) ═══
         val wrTarget = if (state.winrate > 0f) state.winrate else 0.5f
         val blackWrTarget = 1f - wrTarget
         val animatedBlackWr by animateFloatAsState(
@@ -221,47 +229,61 @@ fun GameScreen(
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 4.dp)
+                .padding(horizontal = 10.dp, vertical = 6.dp)
         ) {
             // Glass capsule container
             Box(
                 Modifier
                     .fillMaxWidth()
                     .glassSurface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                         intensity = GlassIntensity.THIN,
                         addShadow = false
                     )
-                    .padding(4.dp)
+                    .padding(5.dp)
             ) {
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height(14.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(colors.Divider.copy(alpha = 0.5f))
+                        .height(20.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.Divider.copy(alpha = 0.35f))
                 ) {
+                    // Black portion with gradient
                     Box(
                         Modifier
                             .fillMaxHeight()
                             .fillMaxWidth(blackWR)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.BlackStone)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(
+                                        colors.BlackStone,
+                                        colors.BlackStoneHighlight
+                                    )
+                                )
+                            )
                     )
                 }
             }
             Row(
-                Modifier.fillMaxWidth().padding(top = 4.dp),
+                Modifier.fillMaxWidth().padding(top = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("B ${"%.1f".format(blackWR * 100)}%", color = colors.TextSecondary, fontSize = 13.sp)
+                Text(
+                    "B ${"%.1f".format(blackWR * 100)}%",
+                    color = colors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold
+                )
                 if (state.winrate > 0f) {
                     Text(
                         "${if (state.scoreLead >= 0) "B+" else "W+"}${"%.1f".format(kotlin.math.abs(state.scoreLead))}",
-                        color = colors.TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold
+                        color = colors.Accent, fontSize = 14.sp, fontWeight = FontWeight.Bold
                     )
                 }
-                Text("W ${"%.1f".format(wr * 100)}%", color = colors.TextSecondary, fontSize = 13.sp)
+                Text(
+                    "W ${"%.1f".format(wr * 100)}%",
+                    color = colors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold
+                )
             }
         }
 
@@ -319,7 +341,7 @@ fun GameScreen(
             GlassCard(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 2.dp),
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
                 shape = RoundedCornerShape(14.dp),
                 intensity = GlassIntensity.CARD
             ) {
@@ -330,7 +352,7 @@ fun GameScreen(
                 ) {
                     Text(
                         state.territoryResult,
-                        color = colors.TextPrimary, fontSize = 12.sp,
+                        color = colors.TextPrimary, fontSize = 13.sp,
                         modifier = Modifier.weight(1f)
                     )
                     Box(
@@ -342,10 +364,10 @@ fun GameScreen(
                             .background(colors.Danger.copy(alpha = 0.9f))
                             .clip(RoundedCornerShape(10.dp))
                             .clickable { onForceEndGame() }
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("End", color = colors.TextOnAccent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text("End", color = colors.TextOnAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -429,15 +451,15 @@ private fun GlassPill(text: String, onClick: () -> Unit, accentRim: Boolean = fa
                 addShadow = false
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = colors.TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+        Text(text, color = colors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
     }
 }
 
 // ──────────────────────────────────────────────
-// Play Button Row (liquid-glass)
+// Play Button Row (liquid-glass, improved)
 // ──────────────────────────────────────────────
 @Composable
 private fun PlayButtonRow(
@@ -448,8 +470,8 @@ private fun PlayButtonRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
     ) {
         GlassIconBtn(
             "\u2795", "New", onClick = onNewGame,
@@ -469,7 +491,7 @@ private fun PlayButtonRow(
         )
         GlassIconBtn(
             "\u25CE", "形势", onClick = onTerritoryEstimate,
-            enabled = true, accentRim = true
+            enabled = true, accent = true
         )
     }
 }
@@ -477,43 +499,65 @@ private fun PlayButtonRow(
 @Composable
 private fun GlassIconBtn(
     icon: String, label: String, onClick: () -> Unit,
-    enabled: Boolean = true, primary: Boolean = false, accentRim: Boolean = false
+    enabled: Boolean = true, primary: Boolean = false, accent: Boolean = false
 ) {
     val colors = LocalThemeColors.current
-    val alpha = if (enabled) 1f else 0.4f
     Column(
         modifier = Modifier
+            .weight(1f)
             .then(
                 if (enabled)
                     Modifier
-                        .glassButton(shape = RoundedCornerShape(16.dp), primary = primary)
                         .glassSurface(
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(18.dp),
                             intensity = if (primary) GlassIntensity.STRONG else GlassIntensity.CARD,
-                            accentRim = accentRim,
+                            accentRim = accent,
                             addShadow = true
                         )
+                        .then(
+                            if (primary) Modifier.background(
+                                Brush.verticalGradient(
+                                    listOf(colors.Accent, colors.AccentVariant)
+                                ), RoundedCornerShape(18.dp)
+                            ) else if (accent) Modifier.background(
+                                colors.AccentLight.copy(alpha = 0.5f), RoundedCornerShape(18.dp)
+                            ) else Modifier
+                        )
+                        .clip(RoundedCornerShape(18.dp))
                         .clickable(enabled = true, onClick = onClick)
                 else
                     Modifier
                         .glassSurface(
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(18.dp),
                             intensity = GlassIntensity.THIN,
                             addShadow = false
                         )
+                        .clip(RoundedCornerShape(18.dp))
             )
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             icon,
-            color = if (enabled) (if (primary) colors.TextOnAccent else colors.TextPrimary) else colors.ButtonDisabledText,
-            fontSize = 28.sp
+            color = when {
+                !enabled -> colors.ButtonDisabledText
+                primary -> colors.TextOnAccent
+                accent -> colors.Accent
+                else -> colors.TextPrimary
+            },
+            fontSize = 24.sp
         )
+        Spacer(Modifier.height(2.dp))
         Text(
             label,
-            color = if (enabled) (if (primary) colors.TextOnAccent.copy(alpha = 0.9f) else colors.TextSecondary) else colors.ButtonDisabledText,
-            fontSize = 11.sp
+            color = when {
+                !enabled -> colors.ButtonDisabledText
+                primary -> colors.TextOnAccent.copy(alpha = 0.9f)
+                accent -> colors.Accent
+                else -> colors.TextSecondary
+            },
+            fontSize = 11.sp,
+            fontWeight = if (accent || primary) FontWeight.SemiBold else FontWeight.Normal
         )
     }
 }

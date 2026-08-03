@@ -32,32 +32,82 @@ fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> Unit, onJ
     val colors = LocalThemeColors.current
     var selectedTab by remember { mutableStateOf(AnalysisTab.MOVE_TREE) }
 
-    // Top: nav row (prev / index / next / eye) in a glass card
+    // ═══ Combined nav + tabs in a single glass card to save vertical space ═══
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 10.dp)
             .glassSurface(
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(16.dp),
                 intensity = GlassIntensity.CARD,
                 addShadow = false
             )
-            .padding(horizontal = 4.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.Center,
+            .padding(horizontal = 6.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // Navigation controls
         IconButton(onClick = onPrev, enabled = state.analysisMoveIndex > 0, modifier = Modifier.size(32.dp)) {
-            Text("\u25C0", fontSize = 16.sp, color = if (state.analysisMoveIndex > 0) colors.TextPrimary else colors.ButtonDisabledText)
+            Text("\u25C0", fontSize = 15.sp, color = if (state.analysisMoveIndex > 0) colors.TextPrimary else colors.ButtonDisabledText)
         }
         Text(
             "${state.analysisMoveIndex + 1}/${state.analysisMoves.size}",
-            modifier = Modifier.width(70.dp),
+            modifier = Modifier.width(60.dp),
             textAlign = TextAlign.Center, color = colors.TextPrimary,
             fontSize = 13.sp, fontWeight = FontWeight.Medium
         )
         IconButton(onClick = onNext, enabled = state.analysisMoveIndex < state.analysisMoves.size, modifier = Modifier.size(32.dp)) {
-            Text("\u25B6", fontSize = 16.sp, color = if (state.analysisMoveIndex < state.analysisMoves.size) colors.TextPrimary else colors.ButtonDisabledText)
+            Text("\u25B6", fontSize = 15.sp, color = if (state.analysisMoveIndex < state.analysisMoves.size) colors.TextPrimary else colors.ButtonDisabledText)
         }
+
+        // Divider between nav and tabs
+        Box(
+            Modifier
+                .height(24.dp)
+                .width(1.dp)
+                .padding(horizontal = 4.dp)
+                .background(colors.Divider.copy(alpha = 0.5f))
+        )
+
+        // Tab selector
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .glassSurface(
+                    shape = RoundedCornerShape(12.dp),
+                    intensity = GlassIntensity.THIN,
+                    addShadow = false
+                )
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            AnalysisTab.entries.forEach { tab ->
+                val isSelected = tab == selectedTab
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .glassSurface(
+                            shape = RoundedCornerShape(10.dp),
+                            intensity = if (isSelected) GlassIntensity.STRONG else GlassIntensity.THIN,
+                            accentRim = isSelected,
+                            addShadow = false
+                        )
+                        .background(if (isSelected) colors.Accent.copy(alpha = 0.9f) else Color.Transparent)
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { selectedTab = tab }
+                        .padding(vertical = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        tab.label,
+                        color = if (isSelected) colors.TextOnAccent else colors.TextSecondary,
+                        fontSize = 11.sp,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                    )
+                }
+            }
+        }
+
+        // Eye toggle button
         if (state.gameMode == GameMode.ANALYZE) {
             Box(
                 modifier = Modifier
@@ -83,55 +133,13 @@ fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> Unit, onJ
         }
     }
 
-    Spacer(Modifier.height(4.dp))
+    Spacer(Modifier.height(6.dp))
 
-    // Tabs row: segmented glass control
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 10.dp)
-            .glassSurface(
-                shape = RoundedCornerShape(14.dp),
-                intensity = GlassIntensity.THIN,
-                addShadow = false
-            )
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly
-    ) {
-        AnalysisTab.entries.forEach { tab ->
-            val isSelected = tab == selectedTab
-            Box(
-                Modifier
-                    .weight(1f)
-                    .glassSurface(
-                        shape = RoundedCornerShape(10.dp),
-                        intensity = if (isSelected) GlassIntensity.STRONG else GlassIntensity.THIN,
-                        accentRim = isSelected,
-                        addShadow = false
-                    )
-                    .background(if (isSelected) colors.Accent.copy(alpha = 0.9f) else Color.Transparent)
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable { selectedTab = tab }
-                    .padding(vertical = 6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    tab.label,
-                    color = if (isSelected) colors.TextOnAccent else colors.TextSecondary,
-                    fontSize = 11.sp,
-                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-                )
-            }
-        }
-    }
-
-    Spacer(Modifier.height(4.dp))
-
-    // Chart / move-tree panel: glassed container
+    // ═══ Chart / move-tree panel: glassed container, taller ═══
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(80.dp)
+            .height(100.dp)
             .padding(horizontal = 10.dp)
             .glassSurface(
                 shape = RoundedCornerShape(16.dp),
@@ -155,7 +163,7 @@ private fun MoveTreeContent(state: GameState, onJumpToMove: (Int) -> Unit) {
     val colors = LocalThemeColors.current
     if (state.analysisMoves.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No moves recorded", color = colors.TextSecondary, fontSize = 11.sp)
+            Text("No moves recorded", color = colors.TextSecondary, fontSize = 12.sp)
         }
         return
     }
@@ -164,7 +172,7 @@ private fun MoveTreeContent(state: GameState, onJumpToMove: (Int) -> Unit) {
         Modifier
             .fillMaxSize()
             .horizontalScroll(scrollState)
-            .padding(horizontal = 6.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         contentAlignment = Alignment.CenterStart
     ) {
         Row(
@@ -176,21 +184,21 @@ private fun MoveTreeContent(state: GameState, onJumpToMove: (Int) -> Unit) {
                 val isSelected = idx == state.analysisMoveIndex - 1
                 Box(
                     modifier = Modifier
-                        .size(width = 26.dp, height = 34.dp)
+                        .size(width = 28.dp, height = 36.dp)
                         .glassSurface(
-                            shape = RoundedCornerShape(6.dp),
+                            shape = RoundedCornerShape(8.dp),
                             intensity = if (isSelected) GlassIntensity.STRONG else GlassIntensity.THIN,
                             accentRim = isSelected,
                             addShadow = false
                         )
                         .background(if (isSelected) colors.Accent.copy(alpha = 0.92f) else Color.Transparent)
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .clickable { onJumpToMove(idx + 1) }
                         .padding(1.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        "$moveNum", fontSize = 9.sp,
+                        "$moveNum", fontSize = 10.sp,
                         color = if (isSelected) colors.TextOnAccent else colors.TextSecondary,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                     )
@@ -331,19 +339,19 @@ private fun CandidatesPlaceholder(candidateInfo: List<String>) {
     val colors = LocalThemeColors.current
     if (candidateInfo.isEmpty()) {
         Column(Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Top candidate moves", color = colors.TextSecondary, fontSize = 10.sp)
+            Text("Top candidate moves", color = colors.TextSecondary, fontSize = 11.sp)
             Spacer(Modifier.height(4.dp))
-            Text("No AI analysis yet", color = colors.ButtonDisabledText, fontSize = 11.sp)
+            Text("No AI analysis yet", color = colors.ButtonDisabledText, fontSize = 12.sp)
         }
         return
     }
-    Column(Modifier.fillMaxSize().padding(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text("Candidate moves", color = colors.TextSecondary, fontSize = 10.sp)
+    Column(Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text("Candidate moves", color = colors.TextSecondary, fontSize = 11.sp)
         candidateInfo.forEachIndexed { i, info ->
             val isBest = i == 0
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("#${i+1}", color = if (isBest) colors.Accent else colors.TextSecondary, fontSize = 10.sp, fontWeight = if (isBest) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.width(16.dp))
-                Text(info, color = if (isBest) colors.TextPrimary else colors.TextSecondary, fontSize = 10.sp, fontWeight = if (isBest) FontWeight.Medium else FontWeight.Normal)
+                Text("#${i+1}", color = if (isBest) colors.Accent else colors.TextSecondary, fontSize = 11.sp, fontWeight = if (isBest) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.width(18.dp))
+                Text(info, color = if (isBest) colors.TextPrimary else colors.TextSecondary, fontSize = 11.sp, fontWeight = if (isBest) FontWeight.Medium else FontWeight.Normal)
             }
         }
     }
