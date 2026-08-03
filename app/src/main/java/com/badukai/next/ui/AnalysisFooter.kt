@@ -84,8 +84,9 @@ fun AnalysisFooter(
                 AnalysisTab.entries.forEach { tab ->
                     val label = when (tab) {
                         AnalysisTab.MOVE_TREE -> "落子树"
-                        AnalysisTab.WINRATE -> "走势图"
-                        AnalysisTab.CANDIDATE_MOVES -> "选点表"
+                        AnalysisTab.CHART -> "走势图"
+                        AnalysisTab.CANDIDATES -> "选点表"
+                        else -> tab.label
                     }
                     val isSel = tab == selectedTab
                     Box(
@@ -121,8 +122,9 @@ fun AnalysisFooter(
                             if (isSel) {
                                 val lineColor = when (tab) {
                                     AnalysisTab.MOVE_TREE -> Color(0xFFFFD24A)
-                                    AnalysisTab.WINRATE -> Color(0xFFB99057)
-                                    AnalysisTab.CANDIDATE_MOVES -> colors.AccentLight
+                                    AnalysisTab.CHART -> Color(0xFFB99057)
+                                    AnalysisTab.CANDIDATES -> colors.AccentLight
+                                    else -> colors.Divider
                                 }
                                 Box(
                                     Modifier
@@ -206,13 +208,13 @@ fun AnalysisFooter(
                                 .width(56.dp)
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(
-                                    border = null,
                                     brush = Brush.horizontalGradient(
                                         listOf(
                                             colors.AccentLight,
                                             colors.AccentLight.copy(alpha = 0.7f)
                                         )
-                                    )
+                                    ),
+                                    shape = RoundedCornerShape(10.dp)
                                 )
                                 .border(1.2.dp, colors.Accent.copy(alpha = 0.7f), RoundedCornerShape(10.dp)),
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -244,7 +246,7 @@ fun AnalysisFooter(
                 }
 
                 // ─── 走势图 (2×2 Tab: 双方/黑/白 × 胜率/目差) ───
-                AnalysisTab.WINRATE -> {
+                AnalysisTab.CHART -> {
                     Column(Modifier.fillMaxSize()) {
                         // 2 行 Tab：侧/轴
                         Row(
@@ -339,7 +341,7 @@ fun AnalysisFooter(
                 }
 
                 // ─── 选点表 6 列 ───
-                AnalysisTab.CANDIDATE_MOVES -> {
+                AnalysisTab.CANDIDATES -> {
                     Column(
                         Modifier
                             .fillMaxSize()
@@ -421,14 +423,15 @@ fun AnalysisFooter(
                                     }
                                 }
                                 val weights = listOf(1.3f, 1.1f, 1.0f, 1.1f, 1.1f)
+                                val (ptX, ptY) = pt
                                 val coord = runCatching {
                                     val size = state.board.size
                                     val sb = StringBuilder()
-                                    val letter = "ABCDEFGHJKLMNOPQRST"[pt.x]
+                                    val letter = "ABCDEFGHJKLMNOPQRST"[ptX]
                                     sb.append(letter)
-                                    sb.append(size - pt.y)
+                                    sb.append(size - ptY)
                                     sb.toString()
-                                }.getOrElse { colNames.getOrElse(i) { "${pt.x},${pt.y}" } }
+                                }.getOrElse { colNames.getOrElse(i) { "${ptX},${ptY}" } }
                                 val winrateStr = "${"%.2f".format(wr * 100f)}%"
                                 val leadStr = (i % 3 - 1).toFloat().let { n -> "${if (n > 0) "+" else ""}${"%.2f".format(n)}" }
                                 val playouts = 28 - (i * 3).coerceAtMost(20)
@@ -665,13 +668,17 @@ private fun WinRateCanvas(
     axisSel: Int = 0
 ) {
     val colors = LocalThemeColors.current
-    val rawPoints = state.winrateOverMoves
-    val wPoints = rawPoints.map { if (it <= 0f) Float.NaN else it }
+    val rawPoints: List<Float> = state.winrateHistory
+    val wPoints = rawPoints.map { value -> if (value <= 0f) Float.NaN else value }
 
     val showWinrate = axisSel == 0        // 0=胜率 / 1=目差
     // 对于 axis=1（目差），近似把 (wr - 0.5) * 目差缩放
-    val points = if (showWinrate) wPoints else wPoints.map { w ->
-        if (w.isNaN()) Float.NaN else (w - 0.5f) * 24f   // 近似映射 ~ ±12 目
+    val points: List<Float> = if (showWinrate) {
+        wPoints
+    } else {
+        wPoints.map { w ->
+            if (w.isNaN()) Float.NaN else (w - 0.5f) * 24f   // 近似映射 ~ ±12 目
+        }
     }
 
     // 轴范围
@@ -755,26 +762,37 @@ private fun WinRateCanvas(
         }
 
         // Draw winrate line
-        val count = points.size
-        if (count >= 2) {
+        val countVal: Int = points.size
+        if (countVal >= 2) {
             var lastValidX = -1f
             var lastValidY = -1f
+            val countF: Float = countVal.toFloat()
+            val leftPad = 30.dp.toPx()
+            val chartW = (w - leftPad).coerceAtLeast(1f)
+            val chartH = (h - 20.dp.toPx()).coerceAtLeast(1f)
+            val yRange = (yHi - yLo).coerceAtLeast(0.0001f)
 
-            for (i in 0 until count) {
-                val xFrac = (i + 0.5f) / count
-                val x = 30.dp.toPx() + xFrac * (w - 30.dp.toPx() - 0.dp.toPx())
-                val v = points[i]
+            for (i in 0 until countVal) {
+                val xFrac: Float = (i.toFloat() + 0.5f) / countF
+                val x: Float = leftPad + xFrac * chartW
+                val v: Float = points[i]
                 if (!v.isNaN()) {
-                    val clamped = v.coerceIn(yLo, yHi)
-                    val yFrac = (yHi - clamped) / (yHi - yLo)
-                    val y = (h - 20.dp.toPx()) * yFrac
+                    val clamped: Float = v.coerceIn(yLo, yHi)
+                    val yFrac: Float = (yHi - clamped) / yRange
+                    val y: Float = chartH * yFrac
 
                     if (lastValidX >= 0f) {
-                        val cMid = (clamped + (points.getOrNull(i - 1) ?: v)) / 2f
+                        val prevVal: Float = points[i - 1]
+                        val cMid: Float = if (!prevVal.isNaN()) {
+                            (clamped + prevVal) * 0.5f
+                        } else {
+                            clamped
+                        }
+                        val threshold: Float = if (showWinrate) 0.5f else 0f
                         val lineColor = when (sideSel) {
                             1 -> colorBlack
                             2 -> Color.White
-                            else -> if (cMid >= if (showWinrate) 0.5f else 0f) colorBlack else Color.White
+                            else -> if (cMid >= threshold) colorBlack else Color.White
                         }
                         drawLine(
                             start = Offset(lastValidX, lastValidY),

@@ -368,9 +368,9 @@ fun GameScreen(
             // ════════════════════════════════════════════════════════
             AnalysisFooter(
                 state = state,
-                onAnalysisPrev = onAnalysisPrev,
-                onAnalysisNext = onAnalysisNext,
-                onAnalysisJump = onAnalysisJump,
+                onPrev = onAnalysisPrev,
+                onNext = onAnalysisNext,
+                onJumpToMove = onAnalysisJump,
                 onToggleEye = onToggleEye,
                 onPass = onPass,
                 onHint = {},
