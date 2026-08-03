@@ -48,11 +48,53 @@ fun SettingsDialog(
     onPickCustomModel: () -> Unit,
     onResetAiModelToBundled: () -> Unit
 ) {
-    val colors = BadukNextColors
+    val colors = LocalThemeColors.current
     Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(16.dp), color = colors.Surface, shadowElevation = 6.dp) {
+        // Liquid-glass dialog: no Surface — instead we use a scrollable
+        // glass card with STRONG density so background content is readable
+        // through the frosted fill while staying legible.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .wrapContentHeight()
+                .glassSurface(
+                    shape = RoundedCornerShape(28.dp),
+                    intensity = GlassIntensity.STRONG,
+                    accentRim = false,
+                    addShadow = true
+                )
+        ) {
             Column(modifier = Modifier.padding(20.dp)) {
-                Text("Settings", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.TextPrimary)
+                // Title row (glass pill)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassSurface(
+                            shape = RoundedCornerShape(14.dp),
+                            intensity = GlassIntensity.THIN,
+                            addShadow = false
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Settings", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.TextPrimary)
+                    Box(
+                        Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .glassSurface(
+                                shape = CircleShape,
+                                intensity = GlassIntensity.CARD,
+                                accentRim = true,
+                                addShadow = false
+                            )
+                            .clickable(onClick = onDismiss),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("\u2715", color = colors.TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
                 Spacer(Modifier.height(14.dp))
 
                 CollapsibleSection(title = "Sound", defaultExpanded = false) {
@@ -60,17 +102,41 @@ fun SettingsDialog(
                     Spacer(Modifier.height(8.dp))
                     Text("Place sound", fontSize = 12.sp, color = colors.TextSecondary)
                     Spacer(Modifier.height(4.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .glassSurface(
+                                shape = RoundedCornerShape(14.dp),
+                                intensity = GlassIntensity.THIN,
+                                addShadow = false
+                            )
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
                         for (i in 0 until 5) {
                             val label = "S${i + 1}"
+                            val selected = i == placeSoundIndex
                             Box(
-                                modifier = Modifier.clip(RoundedCornerShape(8.dp))
-                                    .background(if (i == placeSoundIndex) colors.AccentLight else colors.SurfaceVariant)
-                                    .border(1.dp, if (i == placeSoundIndex) colors.Accent else colors.Divider, RoundedCornerShape(8.dp))
+                                modifier = Modifier
+                                    .glassSurface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        intensity = if (selected) GlassIntensity.STRONG else GlassIntensity.THIN,
+                                        accentRim = selected,
+                                        addShadow = false
+                                    )
+                                    .background(if (selected) colors.Accent.copy(alpha = 0.9f) else Color.Transparent)
+                                    .clip(RoundedCornerShape(10.dp))
                                     .clickable { onSetPlaceSound(i) }
                                     .padding(horizontal = 10.dp, vertical = 8.dp),
                                 contentAlignment = Alignment.Center
-                            ) { Text(label, color = if (i == placeSoundIndex) colors.Accent else colors.TextPrimary, fontSize = 12.sp, fontWeight = if (i == placeSoundIndex) FontWeight.SemiBold else FontWeight.Normal) }
+                            ) {
+                                Text(
+                                    label,
+                                    color = if (selected) colors.TextOnAccent else colors.TextPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                                )
+                            }
                         }
                     }
                 }
@@ -98,22 +164,67 @@ fun SettingsDialog(
                 CollapsibleSection(title = "AI", defaultExpanded = true) {
                     Text("Move time (seconds)", fontSize = 12.sp, color = colors.TextSecondary)
                     Spacer(Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                        Box(Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).clickable { onSetAiMoveTime(aiMoveTimeSeconds - 5) }.padding(horizontal = 12.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .glassSurface(
+                                shape = RoundedCornerShape(14.dp),
+                                intensity = GlassIntensity.CARD,
+                                addShadow = false
+                            )
+                            .padding(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Box(
+                            Modifier
+                                .glassSurface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    intensity = GlassIntensity.CARD,
+                                    addShadow = false
+                                )
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { onSetAiMoveTime(aiMoveTimeSeconds - 5) }
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Text("\u2212", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         }
-                        Text("$aiMoveTimeSeconds", Modifier.width(50.dp), textAlign = TextAlign.Center, color = colors.TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                        Box(Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).clickable { onSetAiMoveTime(aiMoveTimeSeconds + 5) }.padding(horizontal = 12.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "$aiMoveTimeSeconds", Modifier.width(50.dp), textAlign = TextAlign.Center,
+                            color = colors.TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            Modifier
+                                .glassSurface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    intensity = GlassIntensity.CARD,
+                                    addShadow = false
+                                )
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { onSetAiMoveTime(aiMoveTimeSeconds + 5) }
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Text("+", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                     Spacer(Modifier.height(10.dp))
                     ToggleRow("AI can resign", "Allow AI to resign when losing badly", aiCanResign, { onSetAiCanResign(!aiCanResign) })
                     Spacer(Modifier.height(14.dp))
-                    Divider(color = colors.Divider)
+                    Divider(color = colors.Divider.copy(alpha = 0.4f))
                     Spacer(Modifier.height(10.dp))
-                    Text("AI weights source", fontSize = 12.sp, color = colors.TextSecondary, fontWeight = FontWeight.SemiBold)
-                    Text("离线内置 6b 无需首次下载；可切换到在线下载或导入自定义 .txt.gz/.bin.gz", fontSize = 11.sp, color = colors.TextSecondary)
+                    Text(
+                        "AI weights source",
+                        fontSize = 12.sp, color = colors.TextSecondary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "离线内置 6b 无需首次下载；可切换到在线下载或导入自定义 .txt.gz/.bin.gz",
+                        fontSize = 11.sp, color = colors.TextSecondary
+                    )
                     Spacer(Modifier.height(6.dp))
                     ModelSource.entries.forEach { src ->
                         val selected = aiModelSource == src
@@ -122,73 +233,76 @@ fun SettingsDialog(
                             ModelSource.BUNDLED_ASSET -> "APK 内置 6b，离线首启可用"
                             ModelSource.DOWNLOADED -> "从 katagotraining.org 下载 6b（需要联网）"
                             ModelSource.CUSTOM -> if (customModelDisplayName.isNotBlank()) "当前：$customModelDisplayName" else "未导入（请点击下方按钮选择文件）"
-                            // else — exhaustive fallback; normally unreachable.
                             else -> ""
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (selected) colors.AccentLight else colors.SurfaceVariant)
-                                    .border(1.dp, if (selected) colors.Accent else colors.Divider, RoundedCornerShape(8.dp))
-                                    .clickable(enabled = enabled) { onSetAiModelSource(src) }
-                                    .padding(horizontal = 10.dp, vertical = 8.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(14.dp)
-                                            .clip(CircleShape)
-                                            .border(
-                                                if (selected) 4.5.dp else 1.3.dp,
-                                                if (selected) colors.Accent else colors.TextSecondary,
-                                                CircleShape
-                                            )
-                                    )
-                                    Spacer(Modifier.width(10.dp))
-                                    Column {
-                                        Text(src.displayName, color = if (enabled) colors.TextPrimary else colors.TextSecondary, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
-                                        Text(subtitle, color = colors.TextSecondary, fontSize = 11.sp)
-                                    }
-                                }
-                            }
-                        }
+                        SettingsCardRadioOption(
+                            title = src.displayName,
+                            subtitle = subtitle,
+                            selected = selected && enabled,
+                            enabled = enabled,
+                            onClick = { if (enabled) onSetAiModelSource(src) }
+                        )
                         Spacer(Modifier.height(5.dp))
                     }
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = onPickCustomModel,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = colors.Accent, contentColor = colors.TextOnAccent)
+                        // Glass primary button
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .glassButton(shape = RoundedCornerShape(14.dp), primary = true)
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { onPickCustomModel() }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text("选择自定义文件…", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "选择自定义文件…",
+                                color = colors.TextOnAccent,
+                                fontSize = 13.sp, fontWeight = FontWeight.SemiBold
+                            )
                         }
-                        OutlinedButton(
-                            onClick = onResetAiModelToBundled,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, colors.Accent),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.Accent)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .glassSurface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    intensity = GlassIntensity.CARD,
+                                    accentRim = true,
+                                    addShadow = false
+                                )
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { onResetAiModelToBundled() }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text("恢复默认内置", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "恢复默认内置",
+                                color = colors.TextPrimary,
+                                fontSize = 13.sp, fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
-                    Text("支持 .bin.gz / .txt.gz (KataGo 原生)，必须 ≥ 1MB 且为 gzip 压缩（默认 KataGo 模型下载页直接可用）", fontSize = 10.5.sp, color = colors.TextSecondary)
+                    Text(
+                        "支持 .bin.gz / .txt.gz (KataGo 原生)，必须 ≥ 1MB 且为 gzip 压缩",
+                        fontSize = 10.5.sp, color = colors.TextSecondary
+                    )
                 }
 
                 Spacer(Modifier.height(10.dp))
                 CollapsibleSection(title = "Theme", defaultExpanded = false) {
                     GameTheme.entries.forEach { theme ->
-                        SettingsRadioOption(label = theme.displayName, selected = theme == currentTheme, onClick = { onSetTheme(theme) })
+                        SettingsRadioOption(
+                            label = theme.displayName,
+                            selected = theme == currentTheme,
+                            onClick = { onSetTheme(theme) }
+                        )
                         Spacer(Modifier.height(4.dp))
                     }
                 }
 
                 Spacer(Modifier.height(14.dp))
-                Divider(color = colors.Divider)
+                Divider(color = colors.Divider.copy(alpha = 0.4f))
                 Spacer(Modifier.height(10.dp))
                 Text("BadukNext v1.0", fontSize = 11.sp, color = colors.TextSecondary)
             }
@@ -197,28 +311,58 @@ fun SettingsDialog(
 }
 
 @Composable
-private fun CollapsibleSection(title: String, defaultExpanded: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
-    val colors = BadukNextColors
+private fun CollapsibleSection(
+    title: String,
+    defaultExpanded: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val colors = LocalThemeColors.current
     var expanded by remember { mutableStateOf(defaultExpanded) }
     Column {
         Row(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { expanded = !expanded }.padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier
+                .fillMaxWidth()
+                .glassSurface(
+                    shape = RoundedCornerShape(14.dp),
+                    intensity = GlassIntensity.CARD,
+                    addShadow = false
+                )
+                .clip(RoundedCornerShape(14.dp))
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.TextPrimary)
-            Text(if (expanded) "\u25B2" else "\u25BC", fontSize = 12.sp, color = colors.TextSecondary)
+            Text(
+                if (expanded) "\u25B2" else "\u25BC",
+                fontSize = 12.sp, color = colors.TextSecondary
+            )
         }
         AnimatedVisibility(visible = expanded) {
-            Column(modifier = Modifier.padding(start = 4.dp), content = content)
+            Column(
+                modifier = Modifier
+                    .padding(start = 2.dp, top = 6.dp, end = 2.dp),
+                content = content
+            )
         }
     }
 }
 
 @Composable
 private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onToggle: () -> Unit) {
-    val colors = BadukNextColors
+    val colors = LocalThemeColors.current
     Row(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(onClick = onToggle).padding(vertical = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassSurface(
+                shape = RoundedCornerShape(14.dp),
+                intensity = GlassIntensity.CARD,
+                addShadow = false
+            )
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -227,26 +371,104 @@ private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onToggl
         }
         Switch(
             checked = checked, onCheckedChange = { onToggle() },
-            colors = SwitchDefaults.colors(checkedThumbColor = colors.TextOnAccent, checkedTrackColor = colors.Accent, uncheckedThumbColor = colors.Surface, uncheckedTrackColor = colors.Divider)
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = colors.TextOnAccent,
+                checkedTrackColor = colors.Accent,
+                uncheckedThumbColor = colors.Surface,
+                uncheckedTrackColor = colors.Divider
+            )
         )
     }
 }
 
 @Composable
 private fun SettingsRadioOption(label: String, selected: Boolean, onClick: () -> Unit) {
-    val colors = BadukNextColors
+    val colors = LocalThemeColors.current
     Box(
-        modifier = Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (selected) colors.AccentLight else colors.SurfaceVariant)
-            .border(1.dp, if (selected) colors.Accent else colors.Divider, RoundedCornerShape(8.dp))
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassSurface(
+                shape = RoundedCornerShape(14.dp),
+                intensity = GlassIntensity.CARD,
+                accentRim = selected,
+                addShadow = false
+            )
+            .background(if (selected) colors.Accent.copy(alpha = 0.12f) else Color.Transparent)
+            .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(16.dp).clip(CircleShape).border(if (selected) 5.dp else 1.5.dp, if (selected) colors.Accent else colors.TextSecondary, CircleShape))
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .border(
+                        if (selected) 5.dp else 1.5.dp,
+                        if (selected) colors.Accent else colors.TextSecondary,
+                        CircleShape
+                    )
+            )
             Spacer(Modifier.width(10.dp))
-            Text(label, color = colors.TextPrimary, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+            Text(
+                label, color = colors.TextPrimary,
+                fontSize = 13.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+            )
+        }
+    }
+}
+
+/** 2-line radio option (for ModelSource cards) — glass card style */
+@Composable
+private fun SettingsCardRadioOption(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = LocalThemeColors.current
+    val alpha = if (enabled) 1f else 0.45f
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassSurface(
+                shape = RoundedCornerShape(16.dp),
+                intensity = if (selected) GlassIntensity.STRONG else GlassIntensity.CARD,
+                accentRim = selected,
+                addShadow = false
+            )
+            .background(if (selected) colors.Accent.copy(alpha = 0.12f) else Color.Transparent)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(14.dp)
+                    .clip(CircleShape)
+                    .border(
+                        if (selected) 4.5.dp else 1.3.dp,
+                        if (selected) colors.Accent else colors.TextSecondary,
+                        CircleShape
+                    )
+            )
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text(
+                    title,
+                    color = (if (enabled) colors.TextPrimary else colors.TextSecondary).copy(alpha = alpha),
+                    fontSize = 13.sp,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                )
+                Text(
+                    subtitle,
+                    color = colors.TextSecondary.copy(alpha = alpha),
+                    fontSize = 11.sp
+                )
+            }
         }
     }
 }

@@ -7,6 +7,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
@@ -33,10 +34,14 @@ import kotlin.random.Random
  * WIN  → confetti (colorful)
  * LOSE → autumn leaves (orange/brown)
  * DRAW → handshake emoji falling
+ *
+ * Liquid-glass revamp: the dim backdrop uses a glass gradient instead of
+ * pure black; the center message sits on a STRONG glass pill so the
+ * confetti is visible through it (iOS 26 celebration sheet look).
  */
 @Composable
 fun CelebrationOverlay(result: GameResult, onDismiss: () -> Unit) {
-    val colors = BadukNextColors
+    val colors = LocalThemeColors.current
     val titleColor = when (result) {
         GameResult.WIN -> Color(0xFF4CAF50)
         GameResult.LOSE -> Color(0xFFE53935)
@@ -46,26 +51,62 @@ fun CelebrationOverlay(result: GameResult, onDismiss: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.55f))
+            // Soft glassy dim backdrop: gradient + translucent instead of flat
+            // 55% black. This makes the glass card in the middle pop.
+            .background(
+                androidx.compose.ui.graphics.Brush.verticalGradient(
+                    listOf(
+                        Color(0x88000000),
+                        Color(0x55000000),
+                        Color(0x88000000)
+                    )
+                )
+            )
             .zIndex(10f),
         contentAlignment = Alignment.Center
     ) {
         FallingParticles(result)
 
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                result.label,
-                color = titleColor,
-                fontSize = 34.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.height(24.dp))
-            TextButton(
-                onClick = onDismiss,
-                colors = ButtonDefaults.textButtonColors(contentColor = colors.TextOnAccent),
-                modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(colors.Accent)
-            ) {
-                Text("Continue", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 40.dp))
+        // Glass pill in the center (result text + CTA)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .glassSurface(
+                    shape = RoundedCornerShape(32.dp),
+                    intensity = GlassIntensity.STRONG,
+                    accentRim = true,
+                    addShadow = true
+                )
+                .padding(vertical = 28.dp, horizontal = 16.dp)
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    result.label,
+                    color = titleColor,
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.height(24.dp))
+                // Primary glass CTA
+                Box(
+                    modifier = Modifier
+                        .glassButton(shape = RoundedCornerShape(18.dp), primary = true)
+                        .clip(RoundedCornerShape(18.dp))
+                        .clickable(onClick = onDismiss)
+                ) {
+                    TextButton(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.textButtonColors(contentColor = colors.TextOnAccent)
+                    ) {
+                        Text(
+                            "Continue",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 40.dp)
+                        )
+                    }
+                }
             }
         }
     }

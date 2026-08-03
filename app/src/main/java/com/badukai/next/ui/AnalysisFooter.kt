@@ -29,27 +29,47 @@ import com.badukai.next.game.GameState
 
 @Composable
 fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> Unit, onJumpToMove: (Int) -> Unit, onToggleEye: () -> Unit) {
-    val colors = BadukNextColors
+    val colors = LocalThemeColors.current
     var selectedTab by remember { mutableStateOf(AnalysisTab.MOVE_TREE) }
 
+    // Top: nav row (prev / index / next / eye) in a glass card
     Row(
-        modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp)
+            .glassSurface(
+                shape = RoundedCornerShape(14.dp),
+                intensity = GlassIntensity.CARD,
+                addShadow = false
+            )
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(onClick = onPrev, enabled = state.analysisMoveIndex > 0, modifier = Modifier.size(32.dp)) {
             Text("\u25C0", fontSize = 16.sp, color = if (state.analysisMoveIndex > 0) colors.TextPrimary else colors.ButtonDisabledText)
         }
-        Text("${state.analysisMoveIndex + 1}/${state.analysisMoves.size}", modifier = Modifier.width(70.dp), textAlign = TextAlign.Center, color = colors.TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Text(
+            "${state.analysisMoveIndex + 1}/${state.analysisMoves.size}",
+            modifier = Modifier.width(70.dp),
+            textAlign = TextAlign.Center, color = colors.TextPrimary,
+            fontSize = 13.sp, fontWeight = FontWeight.Medium
+        )
         IconButton(onClick = onNext, enabled = state.analysisMoveIndex < state.analysisMoves.size, modifier = Modifier.size(32.dp)) {
             Text("\u25B6", fontSize = 16.sp, color = if (state.analysisMoveIndex < state.analysisMoves.size) colors.TextPrimary else colors.ButtonDisabledText)
         }
-        // "Eye" replay toggle — text button, only in analyze mode
         if (state.gameMode == GameMode.ANALYZE) {
             Box(
                 modifier = Modifier
                     .padding(start = 6.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(if (state.showEyeOverlay) colors.Accent else colors.SurfaceVariant)
+                    .glassSurface(
+                        shape = RoundedCornerShape(10.dp),
+                        intensity = GlassIntensity.CARD,
+                        accentRim = state.showEyeOverlay,
+                        addShadow = false
+                    )
+                    .background(if (state.showEyeOverlay) colors.Accent.copy(alpha = 0.9f) else Color.Transparent)
+                    .clip(RoundedCornerShape(10.dp))
                     .clickable(onClick = onToggleEye)
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center
@@ -65,22 +85,59 @@ fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> Unit, onJ
 
     Spacer(Modifier.height(4.dp))
 
+    // Tabs row: segmented glass control
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp).clip(RoundedCornerShape(8.dp)).background(colors.SurfaceVariant),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp)
+            .glassSurface(
+                shape = RoundedCornerShape(14.dp),
+                intensity = GlassIntensity.THIN,
+                addShadow = false
+            )
+            .padding(4.dp),
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
         AnalysisTab.entries.forEach { tab ->
             val isSelected = tab == selectedTab
-            Box(Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(if (isSelected) colors.Accent else Color.Transparent).clickable { selectedTab = tab }.padding(vertical = 5.dp), contentAlignment = Alignment.Center) {
-                Text(tab.label, color = if (isSelected) colors.TextOnAccent else colors.TextSecondary, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
+            Box(
+                Modifier
+                    .weight(1f)
+                    .glassSurface(
+                        shape = RoundedCornerShape(10.dp),
+                        intensity = if (isSelected) GlassIntensity.STRONG else GlassIntensity.THIN,
+                        accentRim = isSelected,
+                        addShadow = false
+                    )
+                    .background(if (isSelected) colors.Accent.copy(alpha = 0.9f) else Color.Transparent)
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { selectedTab = tab }
+                    .padding(vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    tab.label,
+                    color = if (isSelected) colors.TextOnAccent else colors.TextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                )
             }
         }
     }
 
     Spacer(Modifier.height(4.dp))
 
+    // Chart / move-tree panel: glassed container
     Box(
-        modifier = Modifier.fillMaxWidth().height(80.dp).padding(horizontal = 10.dp).clip(RoundedCornerShape(8.dp)).background(colors.Surface)
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(80.dp)
+            .padding(horizontal = 10.dp)
+            .glassSurface(
+                shape = RoundedCornerShape(16.dp),
+                intensity = GlassIntensity.CARD,
+                addShadow = false
+            )
     ) {
         when (selectedTab) {
             AnalysisTab.MOVE_TREE -> MoveTreeContent(state, onJumpToMove)
@@ -95,7 +152,7 @@ fun AnalysisFooter(state: GameState, onPrev: () -> Unit, onNext: () -> Unit, onJ
 
 @Composable
 private fun MoveTreeContent(state: GameState, onJumpToMove: (Int) -> Unit) {
-    val colors = BadukNextColors
+    val colors = LocalThemeColors.current
     if (state.analysisMoves.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No moves recorded", color = colors.TextSecondary, fontSize = 11.sp)
@@ -103,21 +160,40 @@ private fun MoveTreeContent(state: GameState, onJumpToMove: (Int) -> Unit) {
         return
     }
     val scrollState = rememberScrollState()
-    Box(Modifier.fillMaxSize().horizontalScroll(scrollState).padding(horizontal = 6.dp), contentAlignment = Alignment.CenterStart) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .horizontalScroll(scrollState)
+            .padding(horizontal = 6.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
             state.analysisMoves.forEachIndexed { idx, _ ->
                 val moveNum = idx + 1
                 val isSelected = idx == state.analysisMoveIndex - 1
                 Box(
                     modifier = Modifier
                         .size(width = 26.dp, height = 34.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (isSelected) colors.Accent else colors.SurfaceVariant)
+                        .glassSurface(
+                            shape = RoundedCornerShape(6.dp),
+                            intensity = if (isSelected) GlassIntensity.STRONG else GlassIntensity.THIN,
+                            accentRim = isSelected,
+                            addShadow = false
+                        )
+                        .background(if (isSelected) colors.Accent.copy(alpha = 0.92f) else Color.Transparent)
+                        .clip(RoundedCornerShape(6.dp))
                         .clickable { onJumpToMove(idx + 1) }
                         .padding(1.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("$moveNum", fontSize = 9.sp, color = if (isSelected) colors.TextOnAccent else colors.TextSecondary, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                    Text(
+                        "$moveNum", fontSize = 9.sp,
+                        color = if (isSelected) colors.TextOnAccent else colors.TextSecondary,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                    )
                 }
             }
         }
@@ -126,7 +202,7 @@ private fun MoveTreeContent(state: GameState, onJumpToMove: (Int) -> Unit) {
 
 @Composable
 private fun WinrateChartContent(winrateHistory: List<Float>, scoreLeadHistory: List<Float>, moveIndex: Int = 0, totalMovesInGame: Int = 0) {
-    val colors = BadukNextColors
+    val colors = LocalThemeColors.current
     var chartType by remember { mutableStateOf("wr") }
 
     if (winrateHistory.isEmpty()) {
@@ -214,11 +290,36 @@ private fun WinrateChartContent(winrateHistory: List<Float>, scoreLeadHistory: L
     }
 
     Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp), contentAlignment = Alignment.BottomCenter) {
-        Row(Modifier.clip(RoundedCornerShape(4.dp)).background(colors.SurfaceVariant)) {
+        Row(
+            Modifier
+                .glassSurface(
+                    shape = RoundedCornerShape(8.dp),
+                    intensity = GlassIntensity.THIN,
+                    addShadow = false
+                )
+                .padding(2.dp)
+        ) {
             listOf("wr" to "Win%", "perf" to "Perf", "sl" to "Score").forEach { (key, label) ->
                 val sel = chartType == key
-                Box(Modifier.clip(RoundedCornerShape(3.dp)).background(if (sel) colors.Accent else Color.Transparent).clickable { chartType = key }.padding(horizontal = 6.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {
-                    Text(label, color = if (sel) colors.TextOnAccent else colors.TextSecondary, fontSize = 9.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
+                Box(
+                    Modifier
+                        .glassSurface(
+                            shape = RoundedCornerShape(6.dp),
+                            intensity = if (sel) GlassIntensity.STRONG else GlassIntensity.THIN,
+                            accentRim = sel,
+                            addShadow = false
+                        )
+                        .background(if (sel) colors.Accent.copy(alpha = 0.92f) else Color.Transparent)
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { chartType = key }
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        label,
+                        color = if (sel) colors.TextOnAccent else colors.TextSecondary,
+                        fontSize = 9.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal
+                    )
                 }
             }
         }
@@ -227,7 +328,7 @@ private fun WinrateChartContent(winrateHistory: List<Float>, scoreLeadHistory: L
 
 @Composable
 private fun CandidatesPlaceholder(candidateInfo: List<String>) {
-    val colors = BadukNextColors
+    val colors = LocalThemeColors.current
     if (candidateInfo.isEmpty()) {
         Column(Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Top candidate moves", color = colors.TextSecondary, fontSize = 10.sp)
