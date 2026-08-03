@@ -262,6 +262,37 @@ fun GameScreen(
             // ────────────────────────────────────────────────────────
             WinRateBarSmall(state = state)
 
+            // ────────────────────────────────────────────────────────
+            // LINE 4: 原版提示文字（Starting AI / AI is thinking…）
+            //         胜率条下面直接显示；诊断详情仍然走顶栏大面板
+            // ────────────────────────────────────────────────────────
+            val message = state.gameMessage
+            val showHint = message.isNotBlank()
+                        && !message.contains("=== AI START DIAGNOSTIC ===")
+                        && !message.startsWith("Diagnostics")
+            if (showHint) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 2.dp)
+                        .glassSurface(
+                            shape = RoundedCornerShape(10.dp),
+                            intensity = GlassIntensity.THIN,
+                            accentRim = false,
+                            addShadow = false
+                        )
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    Text(
+                        text = message,
+                        color = colors.TextSecondary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
             // ════════════════════════════════════════════════════════
             // BOARD：无玻璃框，无遮挡，保证显示面积
             // ════════════════════════════════════════════════════════
@@ -269,7 +300,7 @@ fun GameScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 0.dp, vertical = 2.dp),
+                    .padding(horizontal = 0.dp, vertical = 1.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Surface(
@@ -342,10 +373,11 @@ fun GameScreen(
             }
 
             // ════════════════════════════════════════════════════════
-            // FOOTER：AnalysisFooter（3 Tab + 100dp 面板，纯nav+charts，不含按钮）
-            // 然后是原版 PlayButtonRow 5 个 GlassIconBtn = 底部5个
-            // 按钮总数：顶栏 3（新对局/设置/SGF） + 底部 5（新/退/停/投/形势）= 8
+            // FOOTER：AnalysisFooter（贴近棋盘；面板240dp + 走势图顶部Tab）
+            // 然后原版 PlayButtonRow 5 个 GlassIconBtn
+            // 按钮总数：顶栏3 + 底部5 = 8
             // ════════════════════════════════════════════════════════
+            Spacer(Modifier.height(2.dp))
             AnalysisFooter(
                 state = state,
                 onPrev = onAnalysisPrev,
@@ -353,7 +385,7 @@ fun GameScreen(
                 onJumpToMove = onAnalysisJump,
                 onToggleEye = onToggleEye
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(2.dp))
             PlayButtonRow(
                 state = state,
                 onNewGame = onNewGame,
