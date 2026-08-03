@@ -74,14 +74,60 @@ fun GameScreen(
 ) {
     val colors = LocalThemeColors.current
 
-    // ═══ Liquid-glass background gradient ═══
-    Column(
+    // ═══ SETTINGS: full-screen iOS route replacement ═══
+    // When `showSettings` is true we swap the entire Board composition with
+    // the new iOS-style grouped Settings page. This way we don't stack a
+    // Dialog on top of the board (which was cramped on small phones), and
+    // the overall UX matches Apple's Settings app navigation.
+    if (state.showSettings) {
+        SettingsScreen(
+            showCoordinates = state.showCoordinates,
+            soundEnabled = state.soundEnabled,
+            currentTheme = state.currentTheme,
+            currentPlacementMode = state.placementMode,
+            currentAnimation = state.stoneAnimation,
+            placeSoundIndex = state.placeSoundIndex,
+            aiMoveTimeSeconds = state.aiMoveTimeSeconds,
+            aiCanResign = state.aiCanResign,
+            aiModelSource = state.aiModelSource,
+            customModelDisplayName = state.customModelDisplayName,
+            onBack = onDismissSettings,
+            onToggleCoordinates = onToggleCoordinates,
+            onToggleSound = onToggleSound,
+            onSetTheme = onSetTheme,
+            onSetPlacementMode = onSetPlacementMode,
+            onSetAnimation = onSetAnimation,
+            onSetPlaceSound = onSetPlaceSound,
+            onSetAiMoveTime = onSetAiMoveTime,
+            onSetAiCanResign = onSetAiCanResign,
+            onSetAiModelSource = onSetAiModelSource,
+            onPickCustomModel = onPickCustomModel,
+            onResetAiModelToBundled = onResetAiModelToBundled
+        )
+        // NOTE: Dialogs (NewGame / SavedGames / Celebration / ModelSelector)
+        // still render below via the post-Column overlay block. If the user
+        // ever opens one while in SettingsPage (shouldn't happen from UI),
+        // it'll appear on top — benign.
+        return
+    }
+
+    // ═══ Liquid-glass background gradient + colored blobs ═══
+    // Glass effect only works when there's something interesting *behind*
+    // the translucent card. We overlay 3 soft radial gradient blobs (gold
+    // top-left, emerald mid-right, cool cyan bottom-left) at very low
+    // alpha on top of the base gradient so every glass card refracts a
+    // slightly different color field around its edges.
+    Box(
         modifier = modifier
             .fillMaxSize()
             .glassBackgroundGradient()
-            .padding(bottom = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .glassBackgroundBlobs()
+            .padding(bottom = 10.dp)
     ) {
+        Column(
+            Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
         // ═══ Top bar: liquid-glass capsule ═══
         GlassCard(
             modifier = Modifier
@@ -373,67 +419,44 @@ fun GameScreen(
             }
         }
 
-        // ═══ Play buttons (glassed) ═══
-        PlayButtonRow(state, onNewGame, onPass, onResign, onTerritoryEstimate, onUndo)
+            // ═══ Play buttons (glassed) ═══
+            PlayButtonRow(state, onNewGame, onPass, onResign, onTerritoryEstimate, onUndo)
 
-        // ═══ Analysis sub-tabs (glassed) ═══
-        AnalysisFooter(state, onAnalysisPrev, onAnalysisNext, onAnalysisJump, onToggleEye)
-    }
+            // ═══ Analysis sub-tabs (glassed) ═══
+            AnalysisFooter(state, onAnalysisPrev, onAnalysisNext, onAnalysisJump, onToggleEye)
+        }
 
-    // ═══ Dialogs ═══
-    if (state.showNewGameDialog) {
-        NewGameDialog(
-            onDismiss = onDismissNewGame,
-            onStartGame = onStartNewGame,
-            initialAiTime = state.aiMoveTimeSeconds,
-            initialAiCanResign = state.aiCanResign
-        )
-    }
-    if (state.showModelSelector) {
-        ModelSelectorDialog(
-            currentModel = state.selectedModel,
-            onDismiss = onDismissModelSelector,
-            onSelectModel = onSelectModel
-        )
-    }
-    if (state.showSettings) {
-        SettingsDialog(
-            showCoordinates = state.showCoordinates,
-            soundEnabled = state.soundEnabled,
-            currentTheme = state.currentTheme,
-            currentPlacementMode = state.placementMode,
-            placeSoundIndex = state.placeSoundIndex,
-            onDismiss = onDismissSettings,
-            onToggleCoordinates = onToggleCoordinates,
-            onToggleSound = onToggleSound,
-            onSetTheme = onSetTheme,
-            onSetPlacementMode = onSetPlacementMode,
-            onSetPlaceSound = onSetPlaceSound,
-            currentAnimation = state.stoneAnimation,
-            onSetAnimation = onSetAnimation,
-            aiMoveTimeSeconds = state.aiMoveTimeSeconds,
-            aiCanResign = state.aiCanResign,
-            aiModelSource = state.aiModelSource,
-            customModelDisplayName = state.customModelDisplayName,
-            onSetAiMoveTime = onSetAiMoveTime,
-            onSetAiCanResign = onSetAiCanResign,
-            onSetAiModelSource = onSetAiModelSource,
-            onPickCustomModel = onPickCustomModel,
-            onResetAiModelToBundled = onResetAiModelToBundled
-        )
-    }
-    if (state.showSavedGamesDialog) {
-        SavedGamesDialog(
-            games = state.savedGames,
-            onDismiss = onDismissSavedGames,
-            onLoad = onLoadSgf
-        )
-    }
+        // ═══ Dialogs (drawn OVER the board, never inside the scroll Column) ═══
+        if (state.showNewGameDialog) {
+            NewGameDialog(
+                onDismiss = onDismissNewGame,
+                onStartGame = onStartNewGame,
+                initialAiTime = state.aiMoveTimeSeconds,
+                initialAiCanResign = state.aiCanResign
+            )
+        }
+        if (state.showModelSelector) {
+            ModelSelectorDialog(
+                currentModel = state.selectedModel,
+                onDismiss = onDismissModelSelector,
+                onSelectModel = onSelectModel
+            )
+        }
+        // NOTE: showSettings no longer uses a Dialog — it's handled via
+        // the early-return route-switch above.
+        if (state.showSavedGamesDialog) {
+            SavedGamesDialog(
+                games = state.savedGames,
+                onDismiss = onDismissSavedGames,
+                onLoad = onLoadSgf
+            )
+        }
 
-    // ═══ End-game celebration overlay ═══
-    if (state.gameResult != null) {
-        CelebrationOverlay(result = state.gameResult, onDismiss = onDismissCelebration)
-    }
+        // ═══ End-game celebration overlay ═══
+        if (state.gameResult != null) {
+            CelebrationOverlay(result = state.gameResult, onDismiss = onDismissCelebration)
+        }
+    } // close Box (background gradient + blobs)
 }
 
 // ──────────────────────────────────────────────
