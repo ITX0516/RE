@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.RectangleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
@@ -629,7 +630,7 @@ fun Modifier.glassBackgroundBlobs(): Modifier = composed {
     this.then(
         Modifier.background(
             brush = decorativeBlobsBrush(warmBlob, coolBlob, deepBlob, white),
-            shape = androidx.compose.foundation.shape.RectangleShape,
+            shape = RectangleShape,
             alpha = 1f
         )
     )
