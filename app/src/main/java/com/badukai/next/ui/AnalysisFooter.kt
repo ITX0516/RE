@@ -50,6 +50,7 @@ import android.graphics.Paint
 import com.badukai.next.analysis.AnalysisTab
 import com.badukai.next.game.GameState
 import com.badukai.next.game.Move
+import com.badukai.next.game.StoneColor
 
 // ══════════════════════════════════════════════════════════════════════════════
 // AnalysisFooter — 3 Tab + 面板 + 底部1行（7个汉字按钮）
@@ -316,9 +317,11 @@ fun AnalysisFooter(
                                 }
                             }
                         }
-                        androidx.compose.foundation.layout.HorizontalDivider(
-                            color = colors.Divider.copy(alpha = 0.5f),
-                            thickness = 0.6.dp
+                        androidx.compose.foundation.layout.Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(0.6.dp)
+                                .background(colors.Divider.copy(alpha = 0.5f))
                         )
                         val data = state.topCandidatePoints.zip(
                             state.topCandidateWinrates.ifEmpty {
@@ -565,7 +568,7 @@ private fun MoveTreePanel(state: GameState, onJump: (Int) -> Unit) {
                         fontFamily = FontFamily.Monospace
                     )
                     // 胜率（如果有）
-                    val w = rec.winrate
+                    val w = rec.winRate
                     if (w != null && w > 0f) {
                         Text(
                             "%.1f%%".format(w * 100f),
