@@ -3,7 +3,10 @@ package com.badukai.next.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -15,6 +18,7 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -539,17 +543,20 @@ enum class GlassIntensity {
     STRONG  // dense dialog background
 }
 
-/** Soft glow shadow for liquid glass (NOT the dark paper drop-shadow). */
+/**
+ * Soft glow shadow for liquid glass. Uses Compose 1.6 compatible shadow()
+ * signature (no spotColor/ambientColor params, which only exist on 1.7+).
+ * The `color` arg is accepted for API stability but ignored at runtime on
+ * compose-bom 2024.01.00; elevation alone gives the soft lift we need.
+ */
 private fun Modifier.shadowSoft(
     color: Color,
     elevation: Dp,
     shape: Shape
 ): Modifier = this.then(
-    androidx.compose.ui.draw.shadow(
+    Modifier.shadow(
         elevation = elevation,
         shape = shape,
-        spotColor = color,
-        ambientColor = color.copy(alpha = color.alpha * 0.5f),
         clip = false
     )
 )
@@ -583,7 +590,7 @@ fun GlassCard(
     shape: Shape = RoundedCornerShape(20.dp),
     intensity: GlassIntensity = GlassIntensity.CARD,
     accentRim: Boolean = false,
-    contentPadding: androidx.compose.ui.unit.PaddingValues = androidx.compose.ui.unit.PaddingValues(16.dp),
+    contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column(
