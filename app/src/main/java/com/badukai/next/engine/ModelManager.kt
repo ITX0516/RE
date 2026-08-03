@@ -542,6 +542,13 @@ object ModelManager {
     // Internal helpers
     // ------------------------------------------------------------------
 
-    private fun getModelsDir(context: Context): File =
-        File(context.filesDir, "models").also { it.mkdirs() }
+    private fun getModelsDir(context: Context): File {
+        // Use /data/data/<pkg>/files (hardPkgPrefix required by patched
+        // libkatago.so memcmp) — NOT context.filesDir which returns
+        // /data/user/0/<pkg>/files (symlink, but binary does string compare).
+        val baseDir = File("/data/data/${context.packageName}/files")
+        val modelsDir = File(baseDir, "models")
+        if (!modelsDir.exists()) modelsDir.mkdirs()
+        return modelsDir
+    }
 }

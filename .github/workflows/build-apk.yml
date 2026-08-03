@@ -131,14 +131,17 @@ jobs:
           #   was actually unrunnable because the linker rejected it outright.
           echo "P1-a REVERTED: keeping libSNPE.so + libtensorflowlite.so + 10 SNPE stubs + HTA runtime in jniLibs"
 
-          # -------- P1-b: QNN family (17 so / ~86MB) ---------------------------
+          # -------- P1-b: QNN family (16 so / ~85MB) ---------------------------
           # Evidence: cfg only OpenCL backend, 0 com.qualcomm.qti.qnn.* in Kotlin
+          # 2026-08-03: KEEP libQnnTFLiteDelegate.so — readelf proven DT_NEEDED
+          #   by assets/libkatago.so. Removing it → link error: "CANNOT LINK
+          #   EXECUTABLE: library libQnnTFLiteDelegate.so not found"
           prune $DST/jniLibs/arm64-v8a/libQnnHtpPrepare.so
           prune $DST/jniLibs/arm64-v8a/libQnnCpu.so
           prune $DST/jniLibs/arm64-v8a/libQnnSystem.so
           prune $DST/jniLibs/arm64-v8a/libQnnHtp.so
           prune $DST/jniLibs/arm64-v8a/libQnnDsp.so
-          prune $DST/jniLibs/arm64-v8a/libQnnTFLiteDelegate.so
+          # KEEP libQnnTFLiteDelegate.so — DT_NEEDED by libkatago.so (readelf proven)
           prune $DST/jniLibs/arm64-v8a/libQnnHta.so
           prune $DST/jniLibs/arm64-v8a/libQnnSaver.so
           prune $DST/jniLibs/arm64-v8a/libQnnHtpV81Stub.so

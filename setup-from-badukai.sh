@@ -206,18 +206,26 @@ stage P1-a "REVERTED: KEEP SNPE + TFLite family (12 so) — libkatago NEEDED the
 echo "  (no-op: keeping libSNPE.so + libtensorflowlite.so + 10 stubs/hta in jniLibs/arm64-v8a)"
 
 # ================================================================
-# Stage P1-b — QNN (Qualcomm AI Engine Direct) 17 .so / ~86MB
-#   Same evidence: cfg only OpenCL, 0 com.qualcomm.qti.qnn.* in code,
+# Stage P1-b — QNN (Qualcomm AI Engine Direct) 16 .so / ~85MB
+#   Evidence: cfg only OpenCL, 0 com.qualcomm.qti.qnn.* in code,
 #   NO mention of qnn/htp/dsp backend in gtp_static.cfg at all.
 #   libQnnHtpPrepare is another 67MB giant we definitely never touch.
+#
+#   2026-08-03 RUN 30773157376 DIAGNOSTIC PROVED:
+#   assets/libkatago.so has DT_NEEDED libQnnTFLiteDelegate.so (1.0MB).
+#   Removing it causes: "CANNOT LINK EXECUTABLE: library
+#   libQnnTFLiteDelegate.so not found: needed by main executable"
+#   → MUST KEEP libQnnTFLiteDelegate.so! (only QNN lib that is a
+#   direct DT_NEEDED of libkatago.so; readelf verified its own
+#   DT_NEEDED is only system libs: libm/liblog/libdl/libc)
 # ================================================================
-stage P1-b "DROP QNN family (17 so / ~86MB): no QNN backend / Java API usage"
+stage P1-b "DROP QNN family (16 so / ~85MB): no QNN backend / Java API usage — KEEP libQnnTFLiteDelegate.so (DT_NEEDED)"
 prune "$DST_APP/jniLibs/arm64-v8a/libQnnHtpPrepare.so"           # 67MB
 prune "$DST_APP/jniLibs/arm64-v8a/libQnnCpu.so"                  # 5.9MB
 prune "$DST_APP/jniLibs/arm64-v8a/libQnnSystem.so"               # 2.4MB
 prune "$DST_APP/jniLibs/arm64-v8a/libQnnHtp.so"                  # 2.4MB
 prune "$DST_APP/jniLibs/arm64-v8a/libQnnDsp.so"                  # 1.4MB
-prune "$DST_APP/jniLibs/arm64-v8a/libQnnTFLiteDelegate.so"       # 1.0MB
+# KEEP libQnnTFLiteDelegate.so — DT_NEEDED by assets/libkatago.so (readelf proven)
 prune "$DST_APP/jniLibs/arm64-v8a/libQnnHta.so"                  # 959KB
 prune "$DST_APP/jniLibs/arm64-v8a/libQnnSaver.so"                # 764KB
 prune "$DST_APP/jniLibs/arm64-v8a/libQnnHtpV81Stub.so"           # 581KB
