@@ -620,7 +620,7 @@ private fun StonePuck(color: StoneColor) {
                     .border(0.6.dp, colors.WhiteStoneBorder, CircleShape)
             )
         }
-        StoneColor.EMPTY -> { /* no-op */ }
+        else -> { /* no-op, safety for new enum values */ }
     }
 }
 
