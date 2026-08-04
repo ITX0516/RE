@@ -40,6 +40,13 @@ object GameConstants {
     /** Timeout per lz-analyze retry (ms) */
     const val LZ_ANALYZE_RETRY_TIMEOUT = 4000
 
+    /** kata-analyze interval in centiseconds (10cs = 100ms) */
+    const val KATA_ANALYZE_INTERVAL_CS = 10
+    /** Max iterations to wait for kata-analyze info line */
+    const val KATA_ANALYZE_MAX_RETRIES = 3
+    /** Timeout per kata-analyze retry (ms) */
+    const val KATA_ANALYZE_RETRY_TIMEOUT = 4000
+
     /** Min AI move time in seconds */
     const val AI_MOVE_TIME_MIN = 1
     /** Max AI move time in seconds */

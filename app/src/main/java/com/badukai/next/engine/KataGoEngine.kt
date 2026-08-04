@@ -868,8 +868,9 @@ class KataGoEngine(private val context: Context) {
     }
 
     /**
-     * Request KataGo analysis. Verified locally: kata-analyze produces no output on
-     * this engine build, so lz-analyze is PRIMARY (Leela Zero info format works).
+     * Request KataGo analysis. Tries kata-analyze first (provides scoreLead and
+     * richer data), falls back to lz-analyze if kata-analyze fails or produces
+     * no output.
      */
     suspend fun analyzePosition(
         color: String = "black",
@@ -877,11 +878,87 @@ class KataGoEngine(private val context: Context) {
     ): AnalyzeResult? = withContext(Dispatchers.IO) {
         commandMutex.withLock {
             lastAnalysisError = ""
+            // Try kata-analyze first (provides scoreLead + richer candidate data)
+            val kata = tryKataAnalyze()
+            if (kata != null) return@withLock kata
+            // Fall back to lz-analyze
             val lz = tryLzAnalyze()
             if (lz != null) return@withLock lz
-            if (lastAnalysisError.isEmpty()) lastAnalysisError = "lz-analyze failed"
+            if (lastAnalysisError.isEmpty()) lastAnalysisError = "kata-analyze and lz-analyze both failed"
             null
         }
+    }
+
+    private suspend fun tryKataAnalyze(): AnalyzeResult? {
+        return try {
+            inStreamMode = true
+            responseQueue.clear()
+            sendCommand("kata-analyze 10")
+
+            var infoLine: String? = null
+            for (i in 0 until GameConstants.KATA_ANALYZE_MAX_RETRIES) {
+                val line = waitForResponse(GameConstants.KATA_ANALYZE_RETRY_TIMEOUT)
+                if (line.isBlank()) break
+                if (line.contains("info move")) { infoLine = line; break }
+            }
+
+            inStreamMode = false
+            sendCommand("protocol_version")
+            waitForResponse(GameConstants.GTP_TIMEOUT_FLUSH)
+            while (responseQueue.poll() != null) {}
+
+            if (infoLine == null) {
+                lastAnalysisError += " | kata-analyze no info line"
+                AppLogger.e(TAG, "kata-analyze: no info line found")
+                return null
+            }
+            parseKataInfo(infoLine)
+        } catch (e: Exception) {
+            inStreamMode = false
+            lastAnalysisError += " | kata-analyze error: ${e.message}"
+            AppLogger.e(TAG, "kata-analyze error", e)
+            null
+        }
+    }
+
+    /**
+     * Parse a single kata-analyze "info move <coord> visits <n> winrate <wr>
+     * scoreLead <sl> ..." line into an AnalyzeResult. winrate unit is KataGo
+     * standard: 10000 = 100%. scoreLead is in points.
+     */
+    private fun parseKataInfo(line: String): AnalyzeResult? {
+        val regex = Regex("info move (\\S+) visits (\\d+) winrate (-?\\d+)(?:\\s+scoreLead (-?[\\d.]+))?")
+        val matches = regex.findAll(line)
+        val candidates = mutableListOf<CandidateMove>()
+        var bestWinrate = 0f
+        var bestScoreLead = 0f
+
+        for (m in matches) {
+            val coord   = m.groupValues[1]
+            val visits  = m.groupValues[2].toIntOrNull() ?: 0
+            val wrRaw   = m.groupValues[3].toFloatOrNull() ?: continue
+            val slRaw   = m.groupValues[4].toFloatOrNull() ?: 0f
+            val winrate = wrRaw / GameConstants.WINRATE_UNIT
+            val cm = CandidateMove.fromGtp(coord, 19) ?: continue
+            candidates.add(cm.copy(
+                winRate   = winrate,
+                scoreLead = slRaw,
+                visits    = visits,
+                isBest    = candidates.isEmpty()
+            ))
+            if (candidates.size == 1) {
+                bestWinrate = winrate
+                bestScoreLead = slRaw
+            }
+        }
+
+        if (candidates.isEmpty()) {
+            lastAnalysisError += " | kata-analyze parse fail: ${line.take(120)}"
+            AppLogger.e(TAG, "kata-analyze: no moves parsed from [$line]")
+            return null
+        }
+        AppLogger.i(TAG, "kata-analyze success: wr=$bestWinrate sl=$bestScoreLead candidates=${candidates.size}")
+        return AnalyzeResult(winrate = bestWinrate, scoreLead = bestScoreLead, moves = candidates, ownership = null)
     }
 
     private suspend fun tryLzAnalyze(): AnalyzeResult? {
