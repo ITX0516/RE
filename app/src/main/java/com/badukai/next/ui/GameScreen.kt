@@ -271,49 +271,36 @@ fun GameScreen(
             // ────────────────────────────────────────────────────────
             WinRateBarSmall(state = state)
 
-            // ────────────────────────────────────────────────────────
-            // LINE 4: 原版提示文字（Starting AI / AI is thinking…）
-            //         胜率条下面直接显示；诊断详情仍然走顶栏大面板
-            // ────────────────────────────────────────────────────────
+            // Starting AI 提示 — 居中大字、紧贴胜率条下
             val message = state.gameMessage
             val showHint = message.isNotBlank()
                         && !message.contains("=== AI START DIAGNOSTIC ===")
                         && !message.startsWith("Diagnostics")
             AnimatedVisibility(
                 visible = showHint,
-                enter = fadeIn(animationSpec = tween(250)) + expandVertically(),
-                exit = fadeOut(animationSpec = tween(150)) + shrinkVertically()
+                enter = fadeIn(animationSpec = tween(200)) + expandVertically(),
+                exit = fadeOut(animationSpec = tween(120)) + shrinkVertically()
             ) {
-                Box(
-                    Modifier
+                Text(
+                    text = message,
+                    color = colors.TextPrimary.copy(alpha = 0.85f),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 2.dp)
-                        .glassSurface(
-                            shape = RoundedCornerShape(10.dp),
-                            intensity = GlassIntensity.THIN,
-                            accentRim = false,
-                            addShadow = false
-                        )
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    Text(
-                        text = message,
-                        color = colors.TextSecondary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
+                        .padding(vertical = 3.dp),
+                    textAlign = TextAlign.Center
+                )
             }
 
             // ════════════════════════════════════════════════════════
-            // BOARD：无玻璃框，无遮挡，保证显示面积
+            // BOARD：无玻璃框，底部加 padding 避免坐标被 AF 挡
             // ════════════════════════════════════════════════════════
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 0.dp, vertical = 1.dp),
+                    .padding(horizontal = 0.dp, vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Surface(
@@ -663,56 +650,57 @@ private fun WinRateBarSmall(state: GameState) {
     val lead = state.scoreLead
     val leadText = if (lead == 0f && state.winrate <= 0f) "0.0" else "%.1f".format(kotlin.math.abs(lead))
     val leadSide = if (lead >= 0f) "B" else "W"
-    Column(
+    val blackPct = "%.1f".format(blackW * 100f)
+    val whitePct = "%.1f".format(whiteW * 100f)
+
+    Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .padding(horizontal = 0.dp, vertical = 0.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .height(30.dp)
     ) {
-        Row(
+        // 黑方区域 — 文字左对齐 + 足够 padding，不会被挤掉
+        Box(
             Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .height(28.dp)
+                .fillMaxHeight()
+                .fillMaxWidth(blackW)
+                .background(
+                    brush = Brush.horizontalGradient(
+                        listOf(Color(0xFF222222), Color(0xFF444444))
+                    )
+                )
+                .padding(start = 12.dp, end = 6.dp),
+            contentAlignment = Alignment.CenterStart
         ) {
-            // 左侧 黑方 — 深灰背景（仿原版45.7%那种深底白字）
-            Box(
-                Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(blackW)
-                    .background(
-                        brush = Brush.horizontalGradient(
-                            listOf(colors.BlackStone, colors.BlackStoneHighlight)
-                        )
-                    ),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Text(
-                    "${"%.1f".format(blackW * 100f)}% ($leadSide-$leadText)",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(start = 10.dp)
-                )
-            }
-            // 右侧 白方 — 白背景黑字
-            Box(
-                Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth()
-                    .background(Color.White)
-                    .border(0.5.dp, colors.GlassEdge.copy(alpha = 0.5f)),
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                Text(
-                    "${"%.1f".format(whiteW * 100f)}% ($leadSide+$leadText)",
-                    color = Color.Black,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(end = 10.dp)
-                )
-            }
+            Text(
+                "$blackPct% ($leadSide-$leadText)",
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                softWrap = false
+            )
+        }
+        // 白方区域 — 文字右对齐
+        Box(
+            Modifier
+                .fillMaxHeight()
+                .fillMaxWidth()
+                .background(Color.White)
+                .padding(start = 6.dp, end = 12.dp),
+            contentAlignment = Alignment.CenterEnd
+        ) {
+            Text(
+                "$whitePct% ($leadSide+$leadText)",
+                color = Color(0xFF111111),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                softWrap = false
+            )
         }
     }
 }
