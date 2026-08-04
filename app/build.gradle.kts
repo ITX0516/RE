@@ -22,6 +22,7 @@ android {
 
     buildTypes {
         release {
+            // P0: keep R8 off for now to avoid debug-cycle impact; enable in P1
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -45,15 +46,38 @@ android {
 
     packaging {
         jniLibs {
+            // AI-START RELIABILITY REVERT (2026-08-02): useLegacyPackaging=true.
+            //   After "Failed to start AI" on 14.7MB build we revert all novel
+            //   packaging to the CONSERVATIVE defaults that are known to work:
+            //     - jniLibs now has 6 .so files (libkatago + 5 ld.so deps).
+            //     - Legacy packaging = Gradle does NOT compress jniLibs inside the
+            //       APK → each .so is stored uncompressed, 4k-page-aligned, which
+            //       is historically what linker / PackageManager / ART test against.
+            //     - Combined with extractNativeLibs=true in the manifest, the OS
+            //       GUARANTEES a real extracted copy in /data/app-lib (nativeLibraryDir)
+            //       that dlopen() can always find, even for child processes that
+            //       do NOT share ART's linker-namespace (i.e. plain exec*() + LD_LIBRARY_PATH).
+            //   APK size cost: ~6MB extra vs compressed jniLibs. Worth it.
             useLegacyPackaging = true
-            pickFirsts += listOf(
-                "lib/arm64-v8a/libc++_shared.so"
-            )
         }
     }
 
     aaptOptions {
-        noCompress += listOf("tflite", "bin", "gz", "model", "so")
+        // 2026-08-02 SHIPPED-WEIGHTS RULES:
+        //   - 6b weights (kata1-...txt.gz, 4.97MB) must NOT be re-decompressed by
+        //     aapt2 during packaging. If .gz is missing from noCompress, aapt2
+        //     silently inflates assets/models/<x>.txt.gz -> <x>.txt (12.4 MB!)
+        //     inside the APK. That's a double size penalty AND ModelManager's
+        //     strict gzip-magic validation would reject the resulting .txt copy
+        //     on launch (before we added plaintext-format support). We still
+        //     accept both forms in code, but keeping it STORED as .gz is the
+        //     user's requested size behaviour.
+        //   - ".bin" stays (10b.bin / other pre-compressed binary weights a
+        //     user might import later — they gain nothing from deflate).
+        //   - .tflite / .so are already handled elsewhere:
+        //       • .so → packaging.jniLibs (useLegacyPackaging=true = stored)
+        //       • we don't ship .tflite models today.
+        noCompress += listOf("bin", "gz")
     }
 }
 

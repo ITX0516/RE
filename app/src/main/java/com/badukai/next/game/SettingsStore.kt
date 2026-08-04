@@ -2,13 +2,18 @@ package com.badukai.next.game
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.badukai.next.game.StoneAnimation
+import com.badukai.next.engine.ModelSource
 import com.badukai.next.ui.GameTheme
 
-/**
- * Persists settings to SharedPreferences.
- * Reads on app start, writes on every setting change.
- */
+// Persists settings to SharedPreferences.
+//
+// 2026-08-02 ADDED AI-weight fields (user request: ship 6b inside APK + allow user custom):
+//   aiModelSource            = BUNDLED_ASSET default (offline built-in 6b)
+//                            / DOWNLOADED (legacy online)
+//                            / CUSTOM (user-picked .bin.gz/.txt.gz, mirrored)
+//   customModelPath          = absolute path inside filesDir/models/custom/*.gz
+//   customModelDisplayName   = short filename shown in SettingsDialog
+//   resetModelSourceToBundled() - one-click reset used by the UI button
 class SettingsStore(context: Context) {
 
     private val prefs: SharedPreferences =
@@ -27,17 +32,30 @@ class SettingsStore(context: Context) {
         set(v) = prefs.edit().putInt("place_sound_index", v).apply()
 
     var currentTheme: GameTheme
-        get() = try { GameTheme.valueOf(prefs.getString("current_theme", GameTheme.WARM_LIGHT.name) ?: GameTheme.WARM_LIGHT.name) }
-        catch (_: Exception) { GameTheme.WARM_LIGHT }
+        get() = try {
+            GameTheme.valueOf(
+                prefs.getString("current_theme", GameTheme.WARM_LIGHT.name)
+                    ?: GameTheme.WARM_LIGHT.name
+            )
+        } catch (_: Exception) { GameTheme.WARM_LIGHT }
         set(v) = prefs.edit().putString("current_theme", v.name).apply()
 
     var placementMode: PlacementMode
-        get() = try { PlacementMode.valueOf(prefs.getString("placement_mode", PlacementMode.TAP.name) ?: PlacementMode.TAP.name) }
-        catch (_: Exception) { PlacementMode.TAP }
+        get() = try {
+            PlacementMode.valueOf(
+                prefs.getString("placement_mode", PlacementMode.TAP.name)
+                    ?: PlacementMode.TAP.name
+            )
+        } catch (_: Exception) { PlacementMode.TAP }
         set(v) = prefs.edit().putString("placement_mode", v.name).apply()
+
     var stoneAnimation: StoneAnimation
-        get() = try { StoneAnimation.valueOf(prefs.getString("stone_animation", StoneAnimation.FADE_IN.name) ?: StoneAnimation.FADE_IN.name) }
-        catch (_: Exception) { StoneAnimation.FADE_IN }
+        get() = try {
+            StoneAnimation.valueOf(
+                prefs.getString("stone_animation", StoneAnimation.FADE_IN.name)
+                    ?: StoneAnimation.FADE_IN.name
+            )
+        } catch (_: Exception) { StoneAnimation.FADE_IN }
         set(v) = prefs.edit().putString("stone_animation", v.name).apply()
 
     var aiMoveTimeSeconds: Int
@@ -47,4 +65,31 @@ class SettingsStore(context: Context) {
     var aiCanResign: Boolean
         get() = prefs.getBoolean("ai_can_resign", true)
         set(v) = prefs.edit().putBoolean("ai_can_resign", v).apply()
+
+    // --- AI weights source (2026-08-02): bundled / downloaded / custom ---
+
+    var aiModelSource: ModelSource
+        get() = try {
+            ModelSource.valueOf(
+                prefs.getString("ai_model_source", ModelSource.BUNDLED_ASSET.name)
+                    ?: ModelSource.BUNDLED_ASSET.name
+            )
+        } catch (_: Exception) { ModelSource.BUNDLED_ASSET }
+        set(v) = prefs.edit().putString("ai_model_source", v.name).apply()
+
+    var customModelPath: String
+        get() = prefs.getString("custom_model_path", "") ?: ""
+        set(v) = prefs.edit().putString("custom_model_path", v).apply()
+
+    var customModelDisplayName: String
+        get() = prefs.getString("custom_model_display_name", "") ?: ""
+        set(v) = prefs.edit().putString("custom_model_display_name", v).apply()
+
+    fun resetModelSourceToBundled() {
+        prefs.edit()
+            .putString("ai_model_source", ModelSource.BUNDLED_ASSET.name)
+            .remove("custom_model_path")
+            .remove("custom_model_display_name")
+            .apply()
+    }
 }

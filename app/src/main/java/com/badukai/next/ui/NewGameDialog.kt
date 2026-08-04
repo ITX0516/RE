@@ -28,7 +28,7 @@ fun NewGameDialog(
     initialAiTime: Int = 20,
     initialAiCanResign: Boolean = true
 ) {
-    val colors = BadukNextColors
+    val colors = LocalThemeColors.current
     var selectedColor by remember { mutableStateOf(StoneColor.BLACK) }
     var selectedSize by remember { mutableIntStateOf(19) }
     var selectedHandicap by remember { mutableIntStateOf(0) }
@@ -37,55 +37,146 @@ fun NewGameDialog(
     var aiCanResign by remember { mutableStateOf(initialAiCanResign) }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(16.dp), color = colors.Surface, shadowElevation = 6.dp) {
-            Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("New Game", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.TextPrimary)
+        // Liquid-glass dialog container
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .wrapContentHeight()
+                .glassSurface(
+                    shape = RoundedCornerShape(28.dp),
+                    intensity = GlassIntensity.STRONG,
+                    accentRim = false,
+                    addShadow = true
+                )
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Title pill
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassSurface(
+                            shape = RoundedCornerShape(14.dp),
+                            intensity = GlassIntensity.THIN,
+                            addShadow = false
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("New Game", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.TextPrimary)
+                    Box(
+                        Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .glassSurface(
+                                shape = CircleShape,
+                                intensity = GlassIntensity.CARD,
+                                accentRim = true,
+                                addShadow = false
+                            )
+                            .clickable(onClick = onDismiss),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("\u2715", color = colors.TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
                 Spacer(Modifier.height(14.dp))
 
+                // AI plays (player color) selector
                 Text("AI plays", color = colors.TextSecondary, fontSize = 12.sp)
                 Spacer(Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier
+                        .glassSurface(
+                            shape = RoundedCornerShape(18.dp),
+                            intensity = GlassIntensity.THIN,
+                            addShadow = false
+                        )
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     StoneColor.entries.forEach { c ->
-                        ColorOption(c, c.displayName, selected = selectedColor != c) { selectedColor = c.opposite() }
+                        // The selector shows "what the AI plays" — so if
+                        // AI plays BLACK then the user has chosen WHITE,
+                        // hence `selected` compares against the OPPOSITE.
+                        ColorOption(c, c.displayName, selected = selectedColor != c) {
+                            selectedColor = c.opposite()
+                        }
                     }
                 }
 
                 Spacer(Modifier.height(14.dp))
                 Text("Board: ${selectedSize}\u00D7${selectedSize}", color = colors.TextSecondary, fontSize = 12.sp)
                 Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                    Box(Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).clickable { if (selectedSize > 7) selectedSize-- }.padding(horizontal = 10.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
-                        Text("\u2212", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Text("$selectedSize", Modifier.width(40.dp), textAlign = TextAlign.Center, color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                    Box(Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).clickable { if (selectedSize < 19) selectedSize++ }.padding(horizontal = 10.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
-                        Text("+", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
+                StepperGlassRow(
+                    value = selectedSize,
+                    onDec = { if (selectedSize > 7) selectedSize-- },
+                    onInc = { if (selectedSize < 19) selectedSize++ }
+                )
 
                 Spacer(Modifier.height(14.dp))
                 Text("Handicap: $selectedHandicap", color = colors.TextSecondary, fontSize = 12.sp)
                 Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                    Box(Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).clickable { if (selectedHandicap > 0) selectedHandicap-- }.padding(horizontal = 10.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
-                        Text("\u2212", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Text("$selectedHandicap", Modifier.width(40.dp), textAlign = TextAlign.Center, color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                    Box(Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).clickable { if (selectedHandicap < 9) selectedHandicap++ }.padding(horizontal = 10.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
-                        Text("+", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
+                StepperGlassRow(
+                    value = selectedHandicap,
+                    onDec = { if (selectedHandicap > 0) selectedHandicap-- },
+                    onInc = { if (selectedHandicap < 9) selectedHandicap++ }
+                )
 
                 Spacer(Modifier.height(14.dp))
                 Text("Komi", color = colors.TextSecondary, fontSize = 12.sp)
                 Spacer(Modifier.height(4.dp))
-                Box(Modifier.width(80.dp).clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).border(1.dp, colors.Divider, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
-                    Text(komiText, color = colors.TextPrimary, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                Box(
+                    Modifier
+                        .width(100.dp)
+                        .glassSurface(
+                            shape = RoundedCornerShape(14.dp),
+                            intensity = GlassIntensity.CARD,
+                            accentRim = false,
+                            addShadow = false
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        komiText, color = colors.TextPrimary, fontSize = 14.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier
+                        .padding(top = 6.dp)
+                        .glassSurface(
+                            shape = RoundedCornerShape(14.dp),
+                            intensity = GlassIntensity.THIN,
+                            addShadow = false
+                        )
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     listOf("0.5", "6.5", "7.5").forEach { preset ->
-                        Box(Modifier.clip(RoundedCornerShape(4.dp)).background(if (komiText == preset) colors.AccentLight else colors.SurfaceVariant).clickable { komiText = preset }.padding(horizontal = 10.dp, vertical = 4.dp), contentAlignment = Alignment.Center) {
-                            Text(preset, color = colors.TextPrimary, fontSize = 11.sp)
+                        val sel = komiText == preset
+                        Box(
+                            Modifier
+                                .glassSurface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    intensity = if (sel) GlassIntensity.STRONG else GlassIntensity.THIN,
+                                    accentRim = sel,
+                                    addShadow = false
+                                )
+                                .background(if (sel) colors.Accent.copy(alpha = 0.9f) else Color.Transparent)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { komiText = preset }
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                preset,
+                                color = if (sel) colors.TextOnAccent else colors.TextPrimary,
+                                fontSize = 11.sp
+                            )
                         }
                     }
                 }
@@ -93,19 +184,25 @@ fun NewGameDialog(
                 Spacer(Modifier.height(14.dp))
                 Text("AI move time: ${aiTime}s", color = colors.TextSecondary, fontSize = 12.sp)
                 Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                    Box(Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).clickable { aiTime = (aiTime - 5).coerceAtLeast(1) }.padding(horizontal = 10.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
-                        Text("\u2212", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Text("$aiTime", Modifier.width(40.dp), textAlign = TextAlign.Center, color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                    Box(Modifier.clip(RoundedCornerShape(6.dp)).background(colors.SurfaceVariant).clickable { aiTime = (aiTime + 5).coerceAtMost(120) }.padding(horizontal = 10.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
-                        Text("+", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
+                StepperGlassRow(
+                    value = aiTime,
+                    onDec = { aiTime = (aiTime - 5).coerceAtLeast(1) },
+                    onInc = { aiTime = (aiTime + 5).coerceAtMost(120) }
+                )
 
                 Spacer(Modifier.height(10.dp))
+                // Toggle AI can resign (glass row)
                 Row(
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { aiCanResign = !aiCanResign }.padding(vertical = 4.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassSurface(
+                            shape = RoundedCornerShape(14.dp),
+                            intensity = GlassIntensity.CARD,
+                            addShadow = false
+                        )
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { aiCanResign = !aiCanResign }
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -114,18 +211,53 @@ fun NewGameDialog(
                     }
                     Switch(
                         checked = aiCanResign, onCheckedChange = { aiCanResign = it },
-                        colors = SwitchDefaults.colors(checkedThumbColor = colors.TextOnAccent, checkedTrackColor = colors.Accent, uncheckedThumbColor = colors.Surface, uncheckedTrackColor = colors.Divider)
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = colors.TextOnAccent,
+                            checkedTrackColor = colors.Accent,
+                            uncheckedThumbColor = colors.Surface,
+                            uncheckedTrackColor = colors.Divider
+                        )
                     )
                 }
 
                 Spacer(Modifier.height(16.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(colors.Surface).border(1.dp, colors.Divider, RoundedCornerShape(8.dp)).clickable(onClick = onDismiss).padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Cancel: outlined glass
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .glassSurface(
+                                shape = RoundedCornerShape(14.dp),
+                                intensity = GlassIntensity.CARD,
+                                accentRim = false,
+                                addShadow = false
+                            )
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable(onClick = onDismiss)
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text("Cancel", color = colors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     }
-                    Box(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(colors.Accent).clickable {
-                        onStartGame(selectedColor, selectedSize, selectedHandicap, komiText.toFloatOrNull() ?: GameConstants.DEFAULT_KOMI, aiTime, aiCanResign)
-                    }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                    // Start: primary glass
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .glassButton(shape = RoundedCornerShape(14.dp), primary = true)
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable {
+                                onStartGame(
+                                    selectedColor, selectedSize, selectedHandicap,
+                                    komiText.toFloatOrNull() ?: GameConstants.DEFAULT_KOMI,
+                                    aiTime, aiCanResign
+                                )
+                            }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text("Start", color = colors.TextOnAccent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
@@ -134,24 +266,96 @@ fun NewGameDialog(
     }
 }
 
+/** +/- stepper styled in glass */
+@Composable
+private fun StepperGlassRow(value: Int, onDec: () -> Unit, onInc: () -> Unit) {
+    val colors = LocalThemeColors.current
+    Row(
+        modifier = Modifier
+            .glassSurface(
+                shape = RoundedCornerShape(16.dp),
+                intensity = GlassIntensity.CARD,
+                addShadow = false
+            )
+            .padding(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Box(
+            Modifier
+                .glassSurface(
+                    shape = RoundedCornerShape(12.dp),
+                    intensity = GlassIntensity.CARD,
+                    addShadow = false
+                )
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { onDec() }
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("\u2212", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            "$value",
+            Modifier.width(48.dp),
+            textAlign = TextAlign.Center,
+            color = colors.TextPrimary,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.width(10.dp))
+        Box(
+            Modifier
+                .glassSurface(
+                    shape = RoundedCornerShape(12.dp),
+                    intensity = GlassIntensity.CARD,
+                    addShadow = false
+                )
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { onInc() }
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("+", color = colors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
 @Composable
 private fun ColorOption(color: StoneColor, label: String, selected: Boolean, onClick: () -> Unit) {
-    val colors = BadukNextColors
+    val colors = LocalThemeColors.current
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (selected) colors.AccentLight else colors.SurfaceVariant)
-            .border(1.dp, if (selected) colors.Accent else colors.Divider, RoundedCornerShape(10.dp))
+            .glassSurface(
+                shape = RoundedCornerShape(14.dp),
+                intensity = if (selected) GlassIntensity.STRONG else GlassIntensity.CARD,
+                accentRim = selected,
+                addShadow = false
+            )
+            .background(if (selected) colors.Accent.copy(alpha = 0.12f) else Color.Transparent)
+            .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
         Box(
-            modifier = Modifier.size(28.dp).shadow(1.dp, CircleShape).clip(CircleShape)
+            modifier = Modifier
+                .size(28.dp)
+                .shadow(1.dp, CircleShape)
+                .clip(CircleShape)
                 .background(if (color == StoneColor.BLACK) colors.BlackStone else colors.WhiteStone)
-                .then(if (color == StoneColor.WHITE) Modifier.border(0.5.dp, colors.WhiteStoneBorder, CircleShape) else Modifier)
+                .then(
+                    if (color == StoneColor.WHITE)
+                        Modifier.border(0.5.dp, colors.WhiteStoneBorder, CircleShape)
+                    else Modifier
+                )
         )
         Spacer(Modifier.height(4.dp))
-        Text(label, color = colors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        Text(
+            label,
+            color = if (selected) colors.Accent else colors.TextPrimary,
+            fontSize = 12.sp, fontWeight = FontWeight.Medium
+        )
     }
 }

@@ -38,15 +38,159 @@ jobs:
         run: |
           chmod +x ./setup-from-badukai.sh
           ./setup-from-badukai.sh
-          echo "=== Assets before cleanup ==="
+
+          echo "=== Pre-packaging assets ==="
           du -sh app/src/main/assets/*/ 2>/dev/null || echo "no subdirs"
           du -sh app/src/main/jniLibs/ 2>/dev/null || echo "no jniLibs"
-          # Remove old model files — we download 6b at runtime
-          rm -rvf app/src/main/assets/models
-          echo "=== Assets after cleanup ==="
-          du -sh app/src/main/assets/*/ 2>/dev/null || echo "no subdirs"
-          echo "=== .so sizes ==="
-          find app/src/main -name "*.so" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}' | sort -rh
+
+          # KEEP bundled 6b model ONLY — user explicitly said ship the 6b weight
+          # inside APK so first launch works offline.
+          # Upstream badukai ships BOTH (6b txt.gz 4.97MB + 10b bin 12MB).
+          # 10b is 100% dead weight (never referenced from Kotlin code, never
+          # selectable in the UI, never defaulted). Prune it.
+          DST_MODELS="app/src/main/assets/models"
+          KEEP_GZ="kata1-b6c96-s175395328-d26788732.txt.gz"
+          KEEP_TXT="kata1-b6c96-s175395328-d26788732.txt"
+          SHIPPED_BIN="kata1-b6c96-s175395328-d26788732.bin"
+          if [ -d "$DST_MODELS" ]; then
+              ( cd "$DST_MODELS" && find . -maxdepth 1 -type f -print0 | while IFS= read -r -d '' f; do
+                  name="${f#./}"
+                  if [ "$name" = "$KEEP_GZ" ] || [ "$name" = "$KEEP_TXT" ] || [ "$name" = "$SHIPPED_BIN" ]; then
+                      echo "  KEEP $name"
+                  else
+                      echo "  REMOVE $name (only 6b is shipped — user explicitly asked for 6b bundled APK)"
+                      rm -fv "$name"
+                  fi
+              done )
+              echo "  Final assets/models after CI P4 prune:"
+              ( find "$DST_MODELS" -maxdepth 1 -type f -printf '  %12s %f\n' 2>/dev/null || true ) | sort
+
+              # ---- 2026-08-02 AAPT2 WORKAROUND ----
+              # Canonicalize to a single *.bin entry (identical gzip bytes,
+              # just renamed) so aapt2's .gz auto-decompressor can't touch
+              # us. *.bin is already in aaptOptions.noCompress → STORED.
+              ( cd "$DST_MODELS" && \
+                if [ ! -f "$SHIPPED_BIN" ]; then
+                    if   [ -f "$KEEP_GZ" ]; then
+                        echo "  CI P4 normalize: mv $KEEP_GZ -> $SHIPPED_BIN (rename defeats aapt2 .gz handler)"
+                        mv -v "$KEEP_GZ" "$SHIPPED_BIN"
+                    elif [ -f "$KEEP_TXT" ]; then
+                        echo "  CI P4 normalize: gzip -9 $KEEP_TXT -> $SHIPPED_BIN"
+                        gzip -9 -c "$KEEP_TXT" > "$SHIPPED_BIN.tmpgz" && mv -v "$SHIPPED_BIN.tmpgz" "$SHIPPED_BIN" && rm -fv "$KEEP_TXT"
+                    fi
+                fi
+                [ -f "$KEEP_GZ" ] && { echo "  CI P4 cleanup rm $KEEP_GZ (canonical = $SHIPPED_BIN)" ; rm -fv "$KEEP_GZ" ; }
+                [ -f "$KEEP_TXT" ] && { echo "  CI P4 cleanup rm $KEEP_TXT (canonical = $SHIPPED_BIN)" ; rm -fv "$KEEP_TXT" ; }
+                echo "  CI P4 normalize final assets/models:"
+                find . -maxdepth 1 -type f -printf '  %12s %f\n' 2>/dev/null || true
+              )
+          fi
+          echo "=== asset sizes confirmed ==="
+
+          # ====================================================================
+          # APK SHRINK v2 (belt & suspenders) — CI re-prunes all groups EVEN IF
+          # setup-from-badukai.sh is ever accidentally reverted upstream.
+          # Pruning order matches setup-from-badukai.sh (P0, P1, P2).
+          # ====================================================================
+          DST=app/src/main
+          prune() { rm -fv "$@" || true; }
+
+          # -------- P0-a: KataGo mutually exclusive variants --------------------
+          prune $DST/jniLibs/arm64-v8a/libkatago_without_snpe.so
+          prune $DST/jniLibs/arm64-v8a/libkatago_large_boards_without_snpe.so
+
+          # -------- P0-b: Photo board-recognition (no CAMERA permission) -------
+          prune $DST/jniLibs/arm64-v8a/libopencv_core.so
+          prune $DST/jniLibs/arm64-v8a/libopencv_imgproc.so
+          prune $DST/jniLibs/arm64-v8a/libopencv_imgcodecs.so
+          prune $DST/jniLibs/arm64-v8a/libopencv_features2d.so
+          prune $DST/jniLibs/arm64-v8a/libopencv_flann.so
+          prune $DST/jniLibs/arm64-v8a/libimgToSgf.so
+          prune $DST/jniLibs/arm64-v8a/libhidapi.so
+
+          # -------- P0-c: SDL family (Compose Canvas + SoundPool used instead)
+          prune $DST/jniLibs/arm64-v8a/libSDL2.so
+          prune $DST/jniLibs/arm64-v8a/libSDL2_image.so
+          prune $DST/jniLibs/arm64-v8a/libSDL2_mixer.so
+          prune $DST/jniLibs/arm64-v8a/libSDL2_ttf.so
+
+          # -------- P0-d: Python 3.7 runtime (scripts removed upstream) --------
+          prune $DST/jniLibs/arm64-v8a/libpython3.7m.so
+
+          # -------- P1-a: DO NOT prune SNPE/TFLite — REVERTED 2026-08-02
+          #   FATAL LESSON: libkatago.so declares DT_NEEDED on BOTH libSNPE.so AND
+          #   libtensorflowlite.so (confirmed via readelf -d). The Android dynamic
+          #   linker requires EVERY NEEDED library to be resolveable BEFORE main()
+          #   runs — even if the cfg selects OpenCL at runtime (which happens AFTER
+          #   load). Missing either one produces:
+          #     CANNOT LINK EXECUTABLE "...libkatago.so": libSNPE.so not found
+          #   which manifests to the user as generic "Failed to start AI".
+          #   Cost: keeps ~93MB (libSnpeHtpPrepare 67MB + libSNPE 18MB +
+          #   libtensorflowlite 2.8MB + 10 stubs/hta). This is why the original
+          #   (working) APK installed ~220MB; the "14.7MB shrink success" build
+          #   was actually unrunnable because the linker rejected it outright.
+          echo "P1-a REVERTED: keeping libSNPE.so + libtensorflowlite.so + 10 SNPE stubs + HTA runtime in jniLibs"
+
+          # -------- P1-b: QNN family (16 so / ~85MB) ---------------------------
+          # Evidence: cfg only OpenCL backend, 0 com.qualcomm.qti.qnn.* in Kotlin
+          # 2026-08-03: KEEP libQnnTFLiteDelegate.so — readelf proven DT_NEEDED
+          #   by assets/libkatago.so. Removing it → link error: "CANNOT LINK
+          #   EXECUTABLE: library libQnnTFLiteDelegate.so not found"
+          prune $DST/jniLibs/arm64-v8a/libQnnHtpPrepare.so
+          prune $DST/jniLibs/arm64-v8a/libQnnCpu.so
+          prune $DST/jniLibs/arm64-v8a/libQnnSystem.so
+          prune $DST/jniLibs/arm64-v8a/libQnnHtp.so
+          prune $DST/jniLibs/arm64-v8a/libQnnDsp.so
+          # KEEP libQnnTFLiteDelegate.so — DT_NEEDED by libkatago.so (readelf proven)
+          prune $DST/jniLibs/arm64-v8a/libQnnHta.so
+          prune $DST/jniLibs/arm64-v8a/libQnnSaver.so
+          prune $DST/jniLibs/arm64-v8a/libQnnHtpV81Stub.so
+          prune $DST/jniLibs/arm64-v8a/libQnnHtpV79Stub.so
+          prune $DST/jniLibs/arm64-v8a/libQnnHtpV75Stub.so
+          prune $DST/jniLibs/arm64-v8a/libQnnHtpV73Stub.so
+          prune $DST/jniLibs/arm64-v8a/libQnnHtpV69Stub.so
+          prune $DST/jniLibs/arm64-v8a/libQnnHtpV68Stub.so
+          prune $DST/jniLibs/arm64-v8a/libQnnDspV66Stub.so
+          prune $DST/jniLibs/arm64-v8a/libQnnIr.so
+          prune $DST/jniLibs/arm64-v8a/libQnnGpu.so
+
+          # -------- P2: DO NOT prune jniLibs/libkatago.so — REVERTED 2026-08-02
+          #   After "Failed to start AI" on 14.7MB build we keep this duplicate copy
+          #   (assets/ + jniLibs) for launch reliability. 5MB is acceptable cost.
+          echo "P2 REVERTED: keeping $DST/jniLibs/arm64-v8a/libkatago.so in place"
+
+          # -------- P3: DO NOT move jniLibs deps to assets/deps — REVERTED 2026-08-02
+          #   Keep 5 deps (libc++_shared, libcalculator, libffi, libmain, libcdsprpc)
+          #   in jniLibs/arm64-v8a so Gradle packages them as JNI libs and the OS
+          #   extracts them to /data/app-lib with fully standard linker search paths.
+          #   Belt & suspenders: cleanup stale assets/deps/ that old runs may have left
+          rm -rf "$DST/assets/deps"
+          echo "P3 REVERTED: keeping jniLibs/arm64-v8a/*.so in place (no assets/deps move)"
+
+          echo ""
+          echo "=== CI Post-prune .so TOP 20 by size ==="
+          { find app/src/main -name "*.so" -exec ls -lh {} \; 2>/dev/null || true; } | awk '{print $5, $NF}' | sort -rh | head -20
+          # NOTE: { find || true } guard retained for pipefail safety (belt & suspenders)
+          DEPS_COUNT=$( { find app/src/main/assets/deps -maxdepth 1 -name "*.so" -type f 2>/dev/null || true; } | wc -l | tr -d ' ' )
+          DEPS_BYTES=$( { find app/src/main/assets/deps -maxdepth 1 -name "*.so" -type f -print0 2>/dev/null || true; } \
+            | xargs -0 -r du -cb 2>/dev/null | tail -1 | awk '{print $1}')
+          DEPS_BYTES="${DEPS_BYTES:-0}"
+          [[ "$DEPS_BYTES" =~ ^[0-9]+$ ]] || DEPS_BYTES=0
+          DEPS_MB=$(( DEPS_BYTES / 1048576 ))
+          # jniLibs should now have 6 so: libkatago + 5 deps
+          JNI_COUNT=$( { find app/src/main/jniLibs -name "*.so" -type f 2>/dev/null || true; } | wc -l | tr -d ' ' )
+          JNI_BYTES=$( { find app/src/main/jniLibs -name "*.so" -type f -print0 2>/dev/null || true; } \
+            | xargs -0 -r du -cb 2>/dev/null | tail -1 | awk '{print $1}')
+          JNI_BYTES="${JNI_BYTES:-0}"
+          [[ "$JNI_BYTES" =~ ^[0-9]+$ ]] || JNI_BYTES=0
+          JNI_MB=$(( JNI_BYTES / 1048576 ))
+          echo "assets/deps (UNUSED after P3 revert): $DEPS_COUNT .so = ${DEPS_MB}MB"
+          echo "jniLibs .so (expect 6: libkatago + 5 deps): $JNI_COUNT = ${JNI_MB}MB"
+          echo ""
+          echo "=== assets/libkatago.so present? ==="
+          ls -la app/src/main/assets/libkatago.so 2>/dev/null || echo "WARNING: assets/libkatago.so missing"
+          echo "=== jniLibs/libkatago.so present? ==="
+          ls -la app/src/main/jniLibs/arm64-v8a/libkatago.so 2>/dev/null || echo "WARNING: jniLibs/libkatago.so missing"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -58,9 +202,12 @@ jobs:
 
       - name: Build Debug APK
         run: |
-          echo "=== APK content estimate ==="
-          find app/src/main -name "*.so" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}' | sort -rh | head -20
-          find app/src/main -name "*.bin*" -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $NF}'
+          echo "=== APK content estimate before build ==="
+          # Guard with { find || true; } — GitHub Actions bash defaults to -eo pipefail,
+          # and if app/src/main has no subdirs (shouldn't happen but belt & suspenders)
+          # we don't want the find non-zero exit to propagate up the pipe.
+          { find app/src/main -name "*.so" -exec ls -lh {} \; 2>/dev/null || true; } | awk '{print $5, $NF}' | sort -rh | head -20
+          { find app/src/main -name "*.bin*" -exec ls -lh {} \; 2>/dev/null || true; } | awk '{print $5, $NF}'
           echo "=== Building ==="
           ./gradlew assembleDebug --stacktrace --no-daemon
 

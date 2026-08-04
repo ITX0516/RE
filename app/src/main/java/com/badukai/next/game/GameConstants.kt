@@ -24,12 +24,12 @@ object GameConstants {
     /** Territory ownership threshold for "settled" */
     const val TERRITORY_THRESHOLD = 0.15f
 
-    /** GTP command timeout for regular commands (ms) */
-    const val GTP_TIMEOUT_DEFAULT = 5000
-    /** GTP command timeout for final_score (needs more time) */
-    const val GTP_TIMEOUT_SCORE = 10000
-    /** GTP command timeout for genmove (needs the most time) */
-    const val GTP_TIMEOUT_GENMOVE = 60000
+    /** GTP command timeout for regular commands (ms) — 15s for complex positions */
+    const val GTP_TIMEOUT_DEFAULT = 15000
+    /** GTP command timeout for final_score (full-board scoring can be slow) */
+    const val GTP_TIMEOUT_SCORE = 30000
+    /** GTP command timeout for genmove — must exceed AI_MOVE_TIME_MAX (120s) + lag buffer */
+    const val GTP_TIMEOUT_GENMOVE = 130000
     /** GTP command timeout for lz-analyze protocol_version flush */
     const val GTP_TIMEOUT_FLUSH = 1500
 
@@ -39,6 +39,13 @@ object GameConstants {
     const val LZ_ANALYZE_MAX_RETRIES = 3
     /** Timeout per lz-analyze retry (ms) */
     const val LZ_ANALYZE_RETRY_TIMEOUT = 4000
+
+    /** kata-analyze interval in centiseconds (10cs = 100ms) */
+    const val KATA_ANALYZE_INTERVAL_CS = 10
+    /** Max iterations to wait for kata-analyze info line */
+    const val KATA_ANALYZE_MAX_RETRIES = 3
+    /** Timeout per kata-analyze retry (ms) */
+    const val KATA_ANALYZE_RETRY_TIMEOUT = 4000
 
     /** Min AI move time in seconds */
     const val AI_MOVE_TIME_MIN = 1
