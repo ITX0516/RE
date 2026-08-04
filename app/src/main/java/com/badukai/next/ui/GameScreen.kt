@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -165,28 +166,64 @@ fun GameScreen(
                     }
                 }
             } else {
+                // ── Unified glass top bar ──
                 Row(
                     Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp, vertical = 2.dp)
-                        .height(46.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        .height(44.dp)
+                        .glassSurface(
+                            shape = RoundedCornerShape(14.dp),
+                            intensity = GlassIntensity.CARD,
+                            addShadow = false
+                        )
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 原版 3 GlassPills：➕ 新对局 / ⚙ 设置 / SGF
-                    GlassPill("➕ 新对局", onClick = onNewGame)
-                    GlassPill("⚙ 设置", onClick = onShowSettings)
-                    GlassPill("SGF", onClick = onSaveSgf, accentRim = true)
+                    // Left: text buttons separated by ·
+                    Text(
+                        "新局",
+                        color = colors.TextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.clickable(onClick = onNewGame)
+                    )
+                    Text(
+                        " · ",
+                        color = colors.Divider,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(horizontal = 6.dp)
+                    )
+                    Text(
+                        "设置",
+                        color = colors.TextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.clickable(onClick = onShowSettings)
+                    )
+                    Text(
+                        " · ",
+                        color = colors.Divider,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(horizontal = 6.dp)
+                    )
+                    Text(
+                        "棋谱",
+                        color = colors.TextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.clickable(onSaveSgf)
+                    )
 
                     Spacer(Modifier.weight(1f))
 
-                    // 对弈 / 分析 分段胶囊（用户截图最右侧，明确有这个）
+                    // Right: mode segmented control
                     Row(
                         Modifier
-                            .height(38.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(colors.GlassFill.copy(alpha = 0.45f))
-                            .border(0.5.dp, colors.GlassEdge.copy(alpha = 0.55f), RoundedCornerShape(14.dp))
+                            .height(32.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(colors.GlassFill.copy(alpha = 0.4f))
+                            .border(0.5.dp, colors.GlassEdge.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
                             .padding(2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -198,23 +235,23 @@ fun GameScreen(
                             }
                             Box(
                                 Modifier
-                                    .heightIn(min = 36.dp)
+                                    .heightIn(min = 28.dp)
                                     .then(
                                         if (sel) Modifier.background(
                                             brush = Brush.horizontalGradient(
                                                 listOf(colors.Accent, colors.AccentLight)
-                                            ), RoundedCornerShape(12.dp)
+                                            ), RoundedCornerShape(8.dp)
                                         ) else Modifier
                                     )
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .clip(RoundedCornerShape(8.dp))
                                     .clickable { onSetGameMode(mode) }
-                                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                                    .padding(horizontal = 12.dp, vertical = 4.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     label,
                                     color = if (sel) colors.TextOnAccent else colors.TextPrimary,
-                                    fontSize = 13.sp,
+                                    fontSize = 12.sp,
                                     fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium
                                 )
                             }
@@ -224,41 +261,96 @@ fun GameScreen(
             }
 
             // ────────────────────────────────────────────────────────
-            // LINE 2: Match status — 压缩高度到38dp，棋子28dp，左黑右白，不挤
+            // LINE 2: Player info — unified glass card, gradient stones
             // ────────────────────────────────────────────────────────
+            val isBlackTurn = state.isPlayerTurn && state.currentPlayer == StoneColor.BLACK
+            val isWhiteTurn = state.isPlayerTurn && state.currentPlayer == StoneColor.WHITE
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 0.dp)
-                    .height(38.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .padding(horizontal = 8.dp, vertical = 0.dp)
+                    .height(50.dp)
+                    .glassSurface(
+                        shape = RoundedCornerShape(16.dp),
+                        intensity = GlassIntensity.CARD,
+                        addShadow = false
+                    )
+                    .padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // 黑方 左对齐
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // Black side
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .then(
+                            if (isBlackTurn) Modifier
+                                .background(colors.Accent.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                            else Modifier
+                        )
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     StonePuckSmall(StoneColor.BLACK)
                     Spacer(Modifier.width(6.dp))
                     Text(
                         "黑棋",
                         color = colors.TextPrimary,
-                        fontSize = 16.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold
                     )
-                    Spacer(Modifier.width(10.dp))
-                    ScoreChipSmall(text = "${state.capturedByBlack}")
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "提:${state.capturedByBlack}",
+                        color = colors.TextSecondary,
+                        fontSize = 14.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
                     Spacer(Modifier.width(6.dp))
-                    ScoreChipSmall(text = "00:09", mono = true)
+                    Text(
+                        "00:09",
+                        color = colors.TextSecondary,
+                        fontSize = 14.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
                 }
-                // 白方 右对齐
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    ScoreChipSmall(text = "--:--", mono = true)
+                // Center divider
+                Box(
+                    Modifier
+                        .height(28.dp)
+                        .width(1.dp)
+                        .background(colors.Divider.copy(alpha = 0.4f))
+                )
+                // White side
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .then(
+                            if (isWhiteTurn) Modifier
+                                .background(colors.Accent.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                            else Modifier
+                        )
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Text(
+                        "--:--",
+                        color = colors.TextSecondary,
+                        fontSize = 14.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
                     Spacer(Modifier.width(6.dp))
-                    ScoreChipSmall(text = "${state.capturedByWhite}")
-                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "提:${state.capturedByWhite}",
+                        color = colors.TextSecondary,
+                        fontSize = 14.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(Modifier.width(8.dp))
                     Text(
                         "白棋",
                         color = colors.TextPrimary,
-                        fontSize = 16.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                     Spacer(Modifier.width(6.dp))
@@ -431,29 +523,7 @@ fun GameScreen(
 }
 
 // ──────────────────────────────────────────────
-// Liquid-glass pill button (for Save/Load/Settings)
-// ──────────────────────────────────────────────
-@Composable
-private fun GlassPill(text: String, onClick: () -> Unit, accentRim: Boolean = false) {
-    val colors = LocalThemeColors.current
-    Box(
-        Modifier
-            .glassSurface(
-                shape = RoundedCornerShape(12.dp),
-                intensity = GlassIntensity.CARD,
-                accentRim = accentRim,
-                addShadow = false
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(text, color = colors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-    }
-}
-
-// ──────────────────────────────────────────────
-// Play Button Row (liquid-glass, improved)
+// Play Button Row (redesigned: horizontal text buttons)
 // ──────────────────────────────────────────────
 @Composable
 private fun PlayButtonRow(
@@ -464,10 +534,10 @@ private fun PlayButtonRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterHorizontally)
+        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)
     ) {
         GlassIconBtn(
-            "\u2795", "New", onClick = onNewGame,
+            "+", "New", onClick = onNewGame,
             enabled = true, primary = true,
             modifier = Modifier.weight(1f)
         )
@@ -477,7 +547,7 @@ private fun PlayButtonRow(
             modifier = Modifier.weight(1f)
         )
         GlassIconBtn(
-            "\u23ED", "Pass", onClick = onPass,
+            "\u2298", "Pass", onClick = onPass,
             enabled = state.isPlayerTurn && !state.isThinking && state.isEngineReady,
             modifier = Modifier.weight(1f)
         )
@@ -504,32 +574,32 @@ private fun GlassIconBtn(
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.92f else 1f,
+        targetValue = if (pressed) 0.94f else 1f,
         animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
         label = "btnScale"
     )
-    Column(
+    Box(
         modifier = modifier
             .scale(scale)
+            .height(52.dp)
             .then(
                 if (enabled)
                     Modifier
-                        .glassSurface(
-                            shape = RoundedCornerShape(18.dp),
-                            intensity = if (primary) GlassIntensity.STRONG else GlassIntensity.CARD,
-                            accentRim = accent,
-                            addShadow = true
-                        )
                         .then(
-                            if (primary) Modifier.background(
-                                Brush.verticalGradient(
-                                    listOf(colors.Accent, colors.AccentVariant)
-                                ), RoundedCornerShape(18.dp)
-                            ) else if (accent) Modifier.background(
-                                colors.AccentLight.copy(alpha = 0.5f), RoundedCornerShape(18.dp)
-                            ) else Modifier
+                            if (primary) Modifier
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(colors.Accent, colors.AccentVariant)
+                                    ), RoundedCornerShape(14.dp)
+                                )
+                            else if (accent) Modifier
+                                .border(0.5.dp, colors.Accent.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
+                                .background(colors.GlassFill.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
+                            else Modifier
+                                .border(0.5.dp, colors.GlassEdge.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                                .background(colors.GlassFill.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
                         )
-                        .clip(RoundedCornerShape(18.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .clickable(
                             interactionSource = interaction,
                             indication = null,
@@ -538,43 +608,44 @@ private fun GlassIconBtn(
                         )
                 else
                     Modifier
-                        .glassSurface(
-                            shape = RoundedCornerShape(18.dp),
-                            intensity = GlassIntensity.THIN,
-                            addShadow = false
-                        )
-                        .clip(RoundedCornerShape(18.dp))
+                        .border(0.5.dp, colors.GlassEdge.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(14.dp))
             )
-            .padding(vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 8.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Text(
-            icon,
-            color = when {
-                !enabled -> colors.ButtonDisabledText
-                primary -> colors.TextOnAccent
-                accent -> colors.Accent
-                else -> colors.TextPrimary
-            },
-            fontSize = 22.sp
-        )
-        Spacer(Modifier.height(1.dp))
-        Text(
-            label,
-            color = when {
-                !enabled -> colors.ButtonDisabledText
-                primary -> colors.TextOnAccent.copy(alpha = 0.9f)
-                accent -> colors.Accent
-                else -> colors.TextSecondary
-            },
-            fontSize = 11.sp,
-            fontWeight = if (accent || primary) FontWeight.SemiBold else FontWeight.Normal
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                icon,
+                color = when {
+                    !enabled -> colors.ButtonDisabledText.copy(alpha = 0.5f)
+                    primary -> colors.TextOnAccent
+                    accent -> colors.Accent
+                    else -> colors.TextPrimary.copy(alpha = 0.8f)
+                },
+                fontSize = 18.sp
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                label,
+                color = when {
+                    !enabled -> colors.ButtonDisabledText.copy(alpha = 0.5f)
+                    primary -> colors.TextOnAccent.copy(alpha = 0.9f)
+                    accent -> colors.Accent
+                    else -> colors.TextSecondary
+                },
+                fontSize = 12.sp,
+                fontWeight = if (primary) FontWeight.Bold else FontWeight.Medium
+            )
+        }
     }
 }
 
 // ──────────────────────────────────────────────
-// 小一号 StonePuck — 28dp，避免被棋盘挡住
+// StonePuck — 30dp gradient stone with subtle shadow
 // ──────────────────────────────────────────────
 @Composable
 private fun StonePuckSmall(color: StoneColor) {
@@ -583,11 +654,17 @@ private fun StonePuckSmall(color: StoneColor) {
         StoneColor.BLACK -> {
             Box(
                 Modifier
-                    .size(28.dp)
+                    .size(30.dp)
                     .clip(CircleShape)
                     .background(
                         brush = Brush.radialGradient(
-                            listOf(colors.BlackStoneHighlight, colors.BlackStone)
+                            colors = listOf(
+                                colors.BlackStoneHighlight,
+                                colors.BlackStone,
+                                colors.BlackStone.copy(alpha = 0.85f)
+                            ),
+                            center = Offset(0.35f, 0.3f),
+                            radius = 0.7f
                         )
                     )
             )
@@ -595,46 +672,30 @@ private fun StonePuckSmall(color: StoneColor) {
         StoneColor.WHITE -> {
             Box(
                 Modifier
-                    .size(28.dp)
+                    .size(30.dp)
                     .clip(CircleShape)
                     .background(
                         brush = Brush.radialGradient(
-                            listOf(Color.White, colors.WhiteStone)
+                            colors = listOf(
+                                Color.White,
+                                colors.WhiteStoneHighlight,
+                                colors.WhiteStone
+                            ),
+                            center = Offset(0.35f, 0.3f),
+                            radius = 0.7f
                         )
                     )
-                    .border(0.5.dp, colors.WhiteStoneBorder, CircleShape)
+                    .border(0.5.dp, colors.WhiteStoneBorder.copy(alpha = 0.6f), CircleShape)
             )
         }
         else -> {}
     }
 }
 
-// ──────────────────────────────────────────────
-// 小一号 ScoreChip — 提子/计时器
-// ──────────────────────────────────────────────
-@Composable
-private fun ScoreChipSmall(text: String, mono: Boolean = false) {
-    val colors = LocalThemeColors.current
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(colors.GlassFill.copy(alpha = 0.4f))
-            .border(0.5.dp, colors.GlassEdge.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
-            .padding(horizontal = 10.dp, vertical = 4.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text,
-            color = colors.TextPrimary,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = if (mono) FontFamily.Monospace else null
-        )
-    }
-}
+// ScoreChipSmall — removed, player info uses inline Text now
 
 // ──────────────────────────────────────────────
-// 小而清楚的胜率条（就在状态行下/棋盘上，仿阿Q原版）
+// Win rate bar — 34dp, refined gradients, clear separator
 // ──────────────────────────────────────────────
 @Composable
 private fun WinRateBarSmall(state: GameState) {
@@ -646,57 +707,67 @@ private fun WinRateBarSmall(state: GameState) {
         animationSpec = spring(dampingRatio = 0.55f, stiffness = 120f),
         label = "blackW"
     )
-    val whiteW = 1f - blackW
     val lead = state.scoreLead
     val leadText = if (lead == 0f && state.winrate <= 0f) "0.0" else "%.1f".format(kotlin.math.abs(lead))
-    val leadSide = if (lead >= 0f) "B" else "W"
-    val blackPct = "%.1f".format(blackW * 100f)
-    val whitePct = "%.1f".format(whiteW * 100f)
+    val blackPct = "%.0f".format(blackW * 100f)
+    val whitePct = "%.0f".format((1f - blackW) * 100f)
 
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 0.dp, vertical = 0.dp)
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .height(34.dp)
             .clip(RoundedCornerShape(10.dp))
-            .height(30.dp)
+            .border(0.5.dp, colors.GlassEdge.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
     ) {
-        // 黑方区域 — 文字左对齐 + 足够 padding，不会被挤掉
+        // Black section
         Box(
             Modifier
                 .fillMaxHeight()
-                .fillMaxWidth(blackW)
+                .weight(blackW.coerceAtLeast(0.01f))
                 .background(
                     brush = Brush.horizontalGradient(
-                        listOf(Color(0xFF222222), Color(0xFF444444))
+                        listOf(Color(0xFF1A1A1A), Color(0xFF333333))
                     )
                 )
-                .padding(start = 12.dp, end = 6.dp),
+                .padding(horizontal = 10.dp),
             contentAlignment = Alignment.CenterStart
         ) {
             Text(
-                "$blackPct% ($leadSide-$leadText)",
+                "\u25CF $blackPct%  +$leadText",
                 color = Color.White,
                 fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1,
                 softWrap = false
             )
         }
-        // 白方区域 — 文字右对齐
+        // Thin separator line
         Box(
             Modifier
                 .fillMaxHeight()
-                .fillMaxWidth()
-                .background(Color.White)
-                .padding(start = 6.dp, end = 12.dp),
+                .width(1.dp)
+                .background(Color(0xFF666666))
+        )
+        // White section
+        Box(
+            Modifier
+                .fillMaxHeight()
+                .weight((1f - blackW).coerceAtLeast(0.01f))
+                .background(
+                    brush = Brush.horizontalGradient(
+                        listOf(Color(0xFFF2F2F2), Color(0xFFDADADA))
+                    )
+                )
+                .padding(horizontal = 10.dp),
             contentAlignment = Alignment.CenterEnd
         ) {
             Text(
-                "$whitePct% ($leadSide+$leadText)",
-                color = Color(0xFF111111),
+                "+$leadText  $whitePct% \u25CB",
+                color = Color(0xFF222222),
                 fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1,
                 softWrap = false

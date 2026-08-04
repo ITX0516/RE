@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -57,7 +58,7 @@ fun AnalysisFooter(
             .fillMaxWidth()
             .padding(horizontal = 10.dp)
             .glassSurface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 intensity = GlassIntensity.CARD,
                 addShadow = false
             )
@@ -177,7 +178,7 @@ fun AnalysisFooter(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(240.dp)
+            .height(180.dp)
             .padding(horizontal = 10.dp)
             .glassSurface(
                 shape = RoundedCornerShape(20.dp),
@@ -265,8 +266,8 @@ private fun WinrateChartContent(
     var chartType by remember { mutableStateOf("wr") }
 
     // 3 Tab 移到面板顶部（像图二Win%棕红选中那样）
-    val selectedBg = Color(0xFF8B4513)   // 棕红 Win% 选中色
-    val selectedText = Color(0xFFFFF3E0)
+    val selectedBg = colors.Accent   // Use theme accent
+    val selectedText = colors.TextOnAccent
     val unselectedBg = Color.Transparent
     val unselectedText = colors.TextSecondary
 
@@ -395,7 +396,7 @@ private fun WinrateChartContent(
                     val maxVal = data.max().coerceAtLeast(if (chartType == "wr") 1f else 20f)
                     val range = (maxVal - minVal).coerceAtLeast(0.01f)
                     val xStep = cw / (totalMoves - 1).coerceAtLeast(1)
-                    val lineColor = if (chartType == "wr") Color(0xFF8B4513) else colors.Danger
+                    val lineColor = if (chartType == "wr") colors.Accent else colors.Danger
                     for (i in 0 until data.size - 1) {
                         val x1 = pad + i * xStep
                         val y1 = pad + ch * (1f - (data[i] - minVal) / range)
