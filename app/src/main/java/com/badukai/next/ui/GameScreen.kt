@@ -1,10 +1,19 @@
 package com.badukai.next.ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.onPress
+import androidx.compose.foundation.gestures.onTap
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -18,6 +27,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer.scale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -270,7 +281,11 @@ fun GameScreen(
             val showHint = message.isNotBlank()
                         && !message.contains("=== AI START DIAGNOSTIC ===")
                         && !message.startsWith("Diagnostics")
-            if (showHint) {
+            AnimatedVisibility(
+                visible = showHint,
+                enter = fadeIn(animationSpec = tween(250)) + expandVertically(),
+                exit = fadeOut(animationSpec = tween(150)) + shrinkVertically()
+            ) {
                 Box(
                     Modifier
                         .fillMaxWidth()
@@ -460,12 +475,11 @@ private fun PlayButtonRow(
     state: GameState, onNewGame: () -> Unit, onPass: () -> Unit, onResign: () -> Unit,
     onTerritoryEstimate: () -> Unit, onUndo: () -> Unit
 ) {
-    val colors = LocalThemeColors.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterHorizontally)
     ) {
         GlassIconBtn(
             "\u2795", "New", onClick = onNewGame,
@@ -502,8 +516,15 @@ private fun GlassIconBtn(
     modifier: Modifier = Modifier
 ) {
     val colors = LocalThemeColors.current
+    var pressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.92f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
+        label = "btnScale"
+    )
     Column(
         modifier = modifier
+            .scale(scale)
             .then(
                 if (enabled)
                     Modifier
@@ -523,7 +544,15 @@ private fun GlassIconBtn(
                             ) else Modifier
                         )
                         .clip(RoundedCornerShape(18.dp))
-                        .clickable(enabled = true, onClick = onClick)
+                        .pointerInput(enabled) {
+                            awaitEachGesture()
+                                .onPress(
+                                    onPress = { pressed = true },
+                                    onRelease = { pressed = false },
+                                    onCancel = { pressed = false }
+                                )
+                                .onTap { onClick() }
+                        }
                 else
                     Modifier
                         .glassSurface(
@@ -533,7 +562,7 @@ private fun GlassIconBtn(
                         )
                         .clip(RoundedCornerShape(18.dp))
             )
-            .padding(vertical = 10.dp),
+            .padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
@@ -544,9 +573,9 @@ private fun GlassIconBtn(
                 accent -> colors.Accent
                 else -> colors.TextPrimary
             },
-            fontSize = 24.sp
+            fontSize = 22.sp
         )
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(1.dp))
         Text(
             label,
             color = when {
@@ -628,8 +657,13 @@ private fun ScoreChipSmall(text: String, mono: Boolean = false) {
 private fun WinRateBarSmall(state: GameState) {
     val colors = LocalThemeColors.current
     val t = if (state.winrate > 0f) state.winrate else 0.5f
-    val blackW = (1f - t).coerceIn(0f, 1f)
-    val whiteW = t.coerceIn(0f, 1f)
+    val blackTarget = (1f - t).coerceIn(0f, 1f)
+    val blackW by animateFloatAsState(
+        targetValue = blackTarget,
+        animationSpec = spring(dampingRatio = 0.55f, stiffness = 120f),
+        label = "blackW"
+    )
+    val whiteW = 1f - blackW
     val lead = state.scoreLead
     val leadText = if (lead == 0f && state.winrate <= 0f) "0.0" else "%.1f".format(kotlin.math.abs(lead))
     val leadSide = if (lead >= 0f) "B" else "W"
