@@ -11,9 +11,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.onPress
-import androidx.compose.foundation.gestures.onTap
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -25,10 +24,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer.scale
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -516,7 +514,8 @@ private fun GlassIconBtn(
     modifier: Modifier = Modifier
 ) {
     val colors = LocalThemeColors.current
-    var pressed by remember { mutableStateOf(false) }
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.92f else 1f,
         animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
@@ -544,15 +543,12 @@ private fun GlassIconBtn(
                             ) else Modifier
                         )
                         .clip(RoundedCornerShape(18.dp))
-                        .pointerInput(enabled) {
-                            awaitEachGesture()
-                                .onPress(
-                                    onPress = { pressed = true },
-                                    onRelease = { pressed = false },
-                                    onCancel = { pressed = false }
-                                )
-                                .onTap { onClick() }
-                        }
+                        .clickable(
+                            interactionSource = interaction,
+                            indication = null,
+                            enabled = true,
+                            onClick = onClick
+                        )
                 else
                     Modifier
                         .glassSurface(
