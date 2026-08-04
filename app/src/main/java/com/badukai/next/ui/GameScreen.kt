@@ -212,7 +212,7 @@ fun GameScreen(
                         color = colors.TextPrimary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
-                        modifier = Modifier.clickable(onSaveSgf)
+                        modifier = Modifier.clickable(onClick = onSaveSgf)
                     )
 
                     Spacer(Modifier.weight(1f))
